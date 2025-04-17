@@ -1,5 +1,10 @@
+// #include <M5Atom.h>
+#include <ElegantOTA.h>
+
 #include <Arduino.h>
 #include <FastLED.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 #define NUM_LEDS 1
 #define DATA_PIN 35
