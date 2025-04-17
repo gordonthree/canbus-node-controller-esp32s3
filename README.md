@@ -1,0 +1,1 @@
+# PlatformIO Project - ESP32S3 CAN Bus Controller Node
