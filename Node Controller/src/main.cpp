@@ -44,9 +44,12 @@ const char *hostname = "cancontrol";
 CanFrame rxFrame;
 
 volatile int i=4;
-volatile int isrFlag=false;
+volatile bool isrFlag=false;
+volatile bool ipaddFlag=true;
 
 int period = 1000;
+int8_t ipCnt = 0;
+
 unsigned long time_now = 0;
 
 CRGB leds[NUM_LEDS];
@@ -85,15 +88,13 @@ void onOTAEnd(bool success) {
 void setup() {
   Timer0_Cfg = timerBegin(0, 80, true);
   timerAttachInterrupt(Timer0_Cfg, &Timer0_ISR, true);
-  timerAlarmWrite(Timer0_Cfg, 500000, true);
+  timerAlarmWrite(Timer0_Cfg, 100000, true);
   timerAlarmEnable(Timer0_Cfg);
 
   FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
 
   Serial.begin(115200);
-  Serial.println("Start blinky");
 
-  Serial.print("WIFI init");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
@@ -102,11 +103,7 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("");
-  Serial.print("Connected to ");
-  Serial.println(ssid);
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+
 
   // Make it possible to access webserver at http://myEsp32.local
   if (!MDNS.begin(hostname)) {
@@ -129,6 +126,14 @@ void setup() {
   Serial.println("HTTP server started");
 }
 
+void printWifi() {
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
 void checkLed() {
 
   static volatile int last_i = -1; // Keep track of the last state
@@ -140,25 +145,25 @@ void checkLed() {
     { 
       leds[0] = CRGB::Red;
       FastLED.show();
-      Serial.println("RED LED is ON");
+      // Serial.println("RED LED is ON");
     } 
     else if (i == 2)
     {
       leds[0] = CRGB::Green;
       FastLED.show();
-      Serial.println("GREEN LED is ON");
+      // Serial.println("GREEN LED is ON");
     } 
     else if (i == 3)
     {
       leds[0] = CRGB::Blue;
       FastLED.show();
-      Serial.println("BLUE LED is ON");
+      // Serial.println("BLUE LED is ON");
     } 
     else if (i >= 4) 
     {
       leds[0] = CRGB::Black;
       FastLED.show();
-      Serial.println("LED's are OFF");
+      // Serial.println("LED's are OFF");
       i = 0;
     }
 
@@ -178,8 +183,14 @@ void loop() {
   if (isrFlag) {
     // Serial.println("Interrupt");
     i++;
+    ipCnt++;
     checkLed();
     isrFlag = false;
+  }
+
+  if (ipCnt>=100 && ipaddFlag) {
+    ipaddFlag = false;
+    printWifi();
   }
   // checkLed();
   // NOP;
