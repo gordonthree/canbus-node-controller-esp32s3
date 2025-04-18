@@ -2,6 +2,9 @@
 
 ## Goals
 - [x] WiFi Working
+- [x] Non blocking WiFi connect
+- [ ] 
+- [ ] 
 - [ ] WiFi OTA
 - [ ] WiFi Manager / Captive portal setup
 - [x] Timer based ISR
