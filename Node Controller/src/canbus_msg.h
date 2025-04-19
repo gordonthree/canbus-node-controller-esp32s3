@@ -1,3 +1,16 @@
+#ifndef CAN_MSG_ID_H
+#define CAN_MSG_ID_H
+
+// Structure for CAN message ID
+typedef struct {
+    uint16_t id : 11; // 11-bit identifier
+    uint8_t rtr : 1;  // Remote transmission request bit (0 for data, 1 for remote request)
+    uint8_t ide : 1;  // Identifier extension bit (0 for standard, 1 for extended)
+    uint8_t reserved : 1; // always 0
+    uint8_t dlc : 4; // data length code (number of data bytes)
+  } can_msg_id_t;
+  
+// Constants for specific message IDs 
 #define ERROR_OVER_CURRENT_ERROR 0x100
 #define ERROR_OVER_TEMP_ERROR 0x101
 #define ERROR_OVER_VOLT_ERROR 0x102
@@ -138,3 +151,5 @@
 #define TVA_INPUT_BOX 0x758
 
 #define BOX_4X4_IO 0x75A
+
+#endif // CAN_MSG_ID_H
