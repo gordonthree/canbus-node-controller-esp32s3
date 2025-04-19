@@ -6,9 +6,10 @@ typedef struct {
     uint16_t id : 11; // 11-bit identifier
     uint8_t rtr : 1;  // Remote transmission request bit (0 for data, 1 for remote request)
     uint8_t ide : 1;  // Identifier extension bit (0 for standard, 1 for extended)
-    uint8_t reserved : 1; // always 0
+    uint8_t resbit : 1; // always 0
     uint8_t dlc : 4; // data length code (number of data bytes)
-  } can_msg_id_t;
+    uint8_t data[8]; // data field (up to 8 bytes)
+  } can_msg_t;
   
 // Constants for specific message IDs 
 #define ERROR_OVER_CURRENT 0x100 // over current
@@ -117,7 +118,7 @@ typedef struct {
 #define BUTTON_CAP_TOUCH 0x729 // button cap touch
 
 #define EXT_DIGITAL_TEMP 0x72E // ext digital temp
-#define EXT_ANALOG_K-TYPE_TEMP 0x72F // ext analog k-type temp
+#define EXT_ANALOG_K_TYPE_TEMP 0x72F // ext analog k-type temp
 
 #define INTERNAL_PCB_TEMP 0x732 // internal pcb temp
 #define INTERNAL_CHIP_TEMP 0x733 // internal chip temp

@@ -56,14 +56,7 @@ volatile int i=4;
 volatile bool isrFlag=false;
 volatile bool ipaddFlag=true;
 
-volatile can_msg_id_t canMsgID = {
-  REQ_INTERFACES, // message id
-  1,              // remote request frame
-  0,              // ide=0 normal frame
-  0,              // reserved bit = 0
-  1               // dlc one byte of data
-};
-
+volatile can_msg_t canMsgID;
 
 int period = 1000;
 int8_t ipCnt = 0;
