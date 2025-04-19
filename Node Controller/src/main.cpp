@@ -5,7 +5,7 @@
 // Load Wi-Fi networking
 #include <WiFi.h>
 #include <AsyncTCP.h>
-#include "ESPmDNS.h"
+#include <ESPmDNS.h>
 
 // #include <ESPAsync_WiFiManager.h>               //https://github.com/khoih-prog/ESPAsync_WiFiManager
 
@@ -16,11 +16,16 @@
 #include <ESP32-TWAI-CAN.hpp>
 
 // Webserver and file system
-#include <ESPAsyncWebServer.h>
+#define SPIFFS LittleFS
 #include <LittleFS.h>
+#include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson?utm_source=platformio&utm_medium=piohome
 
 // my secrets
 #include "secrets.h"
+
+// my canbus message ids
+#include "canbus_msg.h"
 
 static AsyncWebServer server(80);
 
