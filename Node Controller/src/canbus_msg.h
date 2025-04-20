@@ -20,10 +20,10 @@ typedef struct {
 #define SW_OFF 0x10B // switch off
 #define SW_ON 0x10C // switch on
 #define SW_MOM_PRESS 0x10D // switch momentary press
-#define SW_MOM_RELEASE 0x10E // switch momentary release
+#define SW_SET_MOM_DUR 0x10E // set momentary switch duration ms
 #define SW_SET_PWM_DUTY 0x10F // switch set pwm duty
 #define SW_SET_PWM_FREQ 0x110 // switch set pwm freq
-#define SW_SET_BLINK_HS 0x111 // switch set blink/flash rate in hz
+#define SW_SET_BLINK 0x111 // switch set blink delay in tenths of a second 1-100
 #define SW_SET_STROBE_PAT 0x112 // switch set strobe pattern
 
 #define SET_DISPLAY_OFF 0x200 // set display off
@@ -36,40 +36,21 @@ typedef struct {
 
 #define SET_DISPLAY_BACKLIGHT_COLOR 0x208 // set display backlight color
 #define SET_DISPLAY_BACKLIGHT_BRIGHTNESS 0x209 // set display backlight brightness
-#define SET_1X1_REQ_DATA 0x20A // set 1x1 req data
 #define SET_OLED_REQ_FIELD_CONFIG 0x20B // set oled req field config
-#define SET_OLED_REQ_DATA 0x20C // set oled req data
+#define SET_DISP_REQ_DATA 0x20C // set disp req data
 #define SET_OLED_FIELD_COLOR 0x20D // set oled field color
 #define SET_OLED_FIELD_BLINK 0x20E // set oled field blink
 #define SET_OLED_FIELD_STROBE 0x20F // set oled field strobe
-#define SET_LCD_REQUEST_DATA 0x210 // set lcd request data
 
-#define DATA_BUTTON_DOWN 0x300 // button down
-#define DATA_BUTTON_UP 0x301 // button up
-#define DATA_KEYSWITCH_LOCK 0x302 // keyswitch lock
-#define DATA_KEYSWITCH_UNLOCK 0x303 // keyswitch unlock
-#define DATA_KNOB_CLOCKWISE 0x304 // knob clockwise
-#define DATA_KNOB_COUNTER_CLOCKWISE 0x305 // knob counter clockwise
-#define DATA_KNOB_CLICK 0x306 // knob click
-#define DATA_RFID_READ 0x307 // rfid read
-#define DATA_CONTACT_CLOSED 0x308 // contact closed
-#define DATA_CONTACT_OPENED 0x309 // contact opened
-#define DATA_INTERNAL_TEMP 0x30A // internal temp
-#define DATA_INTERNAL_VOLTS 0x30B // internal volts
-#define DATA_INTERNAL_CURRENT 0x30C // internal current
-#define DATA_EXTERNAL_TEMP 0x30D // external temp
-#define DATA_EXTERNAL_VOLTS 0x30E // external volts
-#define DATA_EXTERNAL_CURRENT 0x30F // external current
-#define DATA_AMBIENT_LIGHT 0x310 // ambient light
-#define DATA_IMU_X_AXIS 0x311 // IMU X Axis
-#define DATA_IMU_Y_AXIS 0x312 // IMU Y Axis
-#define DATA_IMU_Z_AXIS 0x313 // IMU Z Axis
-#define DATA_IMU_X_GYRO 0x314 // IMU X Gyro
-#define DATA_IMU_Y_GYRO 0x315 // IMU Y Gyro
-#define DATA_IMU_Z_GYRO 0x316 // IMU Z Gyro
+#define SET_LED_STRIP_BRIGHTNESS 0x215 // set led strip brightness
+#define SET_LED_STRIP_OFF 0x216 // set led strip off
+#define SET_LED_STRIP_ON 0x217 // set led strip on
+#define DISPLAY_DATA_MSG 0x21A // display data msg
+#define DISPLAY_CONF_MSG 0x21B // display conf msg
 
-#define REQ_INTERFACES 0x400 // req interfaces
 
+#define ACK_INTRODUCTION 0x400 // acknowledge introduction, clear flag on remote device
+#define REQ_INTERFACES 0x401 // req interfaces
 #define REQ_BUTTONS 0x402 // req buttons
 #define REQ_OUTPUTS 0x403 // req outputs
 #define REQ_DISPLAYS 0x404 // req displays
@@ -80,11 +61,14 @@ typedef struct {
 #define REQ_AMBIENT_LIGHT_SENSORS 0x409 // req ambient light sensors
 #define REQ_IMU_SENSORS 0x40A // req imu sensors
 #define REQ_BOXES 0x40B // req boxes
+#define REQ_NODECHECK 0x40C // remote nodes should respond with their node id
+#define REQ_HEALTHCHECK 0x40D // remote nodes should respond with diagnostic sensor data
 
 #define IFACE_8X4_ARGB_KEYPAD 0x700 // 8x4 argb keypad
 #define IFACE_4X4_ARGB_KEYPAD 0x701 // 4x4 argb keypad
 #define IFACE_TOUCHSCREEN_TYPE_A 0x702 // touchscreen type a
 #define IFACE_TOUCHSCREEN_TYPE_B 0x703 // touchscreen type b
+
 
 #define IFACE_NEXTION_TYPE_A 0x706 // nextion type a
 #define IFACE_NEXTION_TYPE_B 0x707 // nextion type b
@@ -92,42 +76,41 @@ typedef struct {
 #define IFACE_3X5_BUTTON_BOX 0x70C // 3x5 button box
 #define IFACE_4X6_BUTTON_BOX 0x70D // 4x6 button box
 
-#define ANALOG_LED_STRIP 0x710 // analog led strip
-#define ARGBW_LED_STRIP 0x711 // argbw led strip
-#define ARGB_LED_STRIP 0x712 // argb led strip
-#define SINGLE_ITEM_DISPLAY 0x713 // single item display
-#define MULTI_ITEM_DISPLAY_ 0x714 // multi item display 
-#define OLED_DISPLAY_2_4IN 0x715 // oled display 2 4in
-#define OLED_DISPLAY_4_3IN 0x716 // oled display 4 3in
-#define LCD_20_CHAR 0x717 // lcd 20 char
-#define LCD_40_CHAR 0x718 // lcd 40 char
 
-#define HIGH_CURRENT_SWITCH 0x71A // high current switch
-#define LOW_CURRENT_SWITCH 0x71B // low current switch
-#define OPEN_DRAIN_OUTPUT 0x71C // open drain output
+#define DISP_ANALOG_LED_STRIP 0x710 // analog led strip
+#define DISP_ARGBW_LED_STRIP 0x711 // argbw led strip
+#define DISP_ARGB_LED_STRIP 0x712 // argb led strip
+#define DISP_OLED 0x715 // non-touch oled display
+#define DISP_LCD 0x717 // lcd display
+
+#define OUT_HIGH_CURRENT_SW 0x71A // high current solid state switch
+#define OUT_LOW_CURRENT_SW 0x71B // low current solid state switch
+#define OUT_OPEN_DRAIN 0x71C // open drain output
 
 #define BUTTON_NO_BACKLIGHT 0x720 // button no backlight
 #define BUTTON_ARGB_BACKLIGHT 0x721 // button argb backlight
 #define BUTTON_VIRTUAL 0x722 // button virtual
 #define BUTTON_WITH_DISPLAY 0x723 // button with display
-#define STAND_ALONE_KNOB 0x724 // stand alone knob
-#define STAND_ALONE_JOG_DIAL 0x725 // stand alone jog dial
-#define KEY_SWITCH 0x726 // key switch
-#define RFID_READER 0x727 // rfid reader
-#define BUTTON_TOUCHSCREEN 0x728 // button touchscreen
-#define BUTTON_CAP_TOUCH 0x729 // button cap touch
+#define BUTTON_ANALOG_KNOB 0x724 // analog knob input
+#define BUTTON_JOG_DIAL 0x725 // jog dial with or without click
+#define BUTTON_KEY_SWITCH 0x726 // key switch
+#define BUTTON_MOTION_DET 0x727 // motion detector
+#define BUTTON_CAP_TOUCH 0x728 // capacitive touch switch stand-alone
 
 #define EXT_DIGITAL_TEMP 0x72E // ext digital temp
-#define EXT_ANALOG_K_TYPE_TEMP 0x72F // ext analog k-type temp
+#define EXT_ANALOG_K_TYPE_TEMP 0x72F // ext analog k type temp
 
-#define INTERNAL_PCB_TEMP 0x732 // internal pcb temp
-#define INTERNAL_CHIP_TEMP 0x733 // internal chip temp
+#define NODE_LASTBOOT 0x731 // last boot timestamp
+#define NODE_PCB_TEMP 0x732 // node pcb temp
+#define NODE_CPU_TEMP 0x733 // node cpu temp
 #define EXTERNAL_VOLTAGE_SENSOR 0x734 // external voltage sensor
 #define INTERNAL_VOLTAGE_SENSOR 0x735 // internal voltage sensor
 
+
 #define INTERNAL_PCB_CURRENT_SENSOR 0x738 // internal pcb current sensor
-#define EXTERNAL_CURRENT_SHUNT_TYPE 0x739 // external current shunt type
-#define EXTERNAL_CURRENT_HALL_EFFECT 0x73A // external current hall effect
+#define EXTERNAL_CURRENT_SHUNT 0x739 // external current shunt
+#define EXTERNAL_CURRENT_HALL 0x73A // external current hall
+
 
 #define CONTACT_CLOSURE_PULL_DOWN 0x73D // contact closure pull down
 #define CONTACT_CLOSURE_PULL_UP 0x73E // contact closure pull up
@@ -151,6 +134,6 @@ typedef struct {
 
 #define TVA_INPUT_BOX 0x758 // temp, volt, current input box
 
-#define BOX_4X4_IO 0x75A // input / output box, 4 in, 4 out
+#define BOX_4X4_IO 0x75A // input - output box, 4 in, 4 out
 
-#endif // CAN_MSG_ID_H
+#endif // END CAN_MSG_ID_H
