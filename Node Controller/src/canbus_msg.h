@@ -15,6 +15,8 @@ typedef struct {
 #define ERROR_OVER_CURRENT 0x100 // over current
 #define ERROR_OVER_TEMP 0x101 // over temp
 #define ERROR_OVER_VOLT 0x102 // over volt
+#define MSG_NORM_OPER 0x10A // message to all nodes to being normal operation, sent after introduction and enumeration are complete
+#define MSG_HALT_OPER 0x10B // message to all nodes to stop transmitting messages and wait for instructions
 
 #define SW_SET_OUT_MODE 0x10A // switch set output mode (pwm, one-shot, solid-state, blinking, strobing)
 #define SW_OFF 0x10B // switch off
