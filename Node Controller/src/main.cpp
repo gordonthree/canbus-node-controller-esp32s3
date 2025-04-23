@@ -1,3 +1,10 @@
+#ifdef CORE_DEBUG_LEVEL
+#undef CORE_DEBUG_LEVEL
+#endif
+
+#define CORE_DEBUG_LEVEL 3
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+
 #include <Arduino.h>
 #include <stdio.h>
 #include <freertos/FreeRTOS.h>
@@ -22,13 +29,16 @@
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson?utm_source=platformio&utm_medium=piohome
 
+static AsyncWebServer server(80);
+
 // my secrets
 #include "secrets.h"
 
 // my canbus message ids
 #include "canbus_msg.h"
 
-static AsyncWebServer server(80);
+#include "esp_log.h"
+
 
 #include "driver/twai.h"
 
@@ -45,6 +55,7 @@ static bool driver_installed = false;
 unsigned long previousMillis = 0;  // will store last time a message was send
 String texto;
 
+static const char *TAG = "can_control";
 
 // Calls = 0;
 
@@ -179,6 +190,7 @@ static void send_message() {
     twai_start();
     printf("twai Started\n");
     // wifiOnConnect();
+    ESP_LOGI(TAG, "Failed to queue message for transmission, initiating recovery");
     vTaskDelay(500);
   }
   vTaskDelay(100);
@@ -401,6 +413,7 @@ void setup() {
   FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
 
   Serial.begin(115200);
+  Serial.setDebugOutput(true);
 
   WiFi.onEvent(WiFiEvent);
   WiFi.mode(WIFI_MODE_APSTA);
