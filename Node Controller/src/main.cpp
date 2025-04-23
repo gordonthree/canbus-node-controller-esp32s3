@@ -3,8 +3,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include <ElegantOTA.h>
-
 // Load Wi-Fi networking
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -73,7 +71,7 @@ volatile int i=4;
 volatile bool isrFlag=false;
 volatile bool ipaddFlag=true;
 
-volatile can_msg_t canMsgID;
+// volatile can_msg_t canMsgID;
 
 int period = 1000;
 int8_t ipCnt = 0;
@@ -97,13 +95,12 @@ void wifiOnConnect(){
   Serial.println(WiFi.SSID());
   Serial.print("STA IPv4: ");
   Serial.println(WiFi.localIP());
-  Serial.print("STA IPv6: ");
-  Serial.println(WiFi.localIPv6());
+
 }
 
 //when wifi disconnects
 void wifiOnDisconnect(){
-  Serial.println("STA Disconnected");
+  Serial.println("STA disconnected, reconnecting...");
   delay(1000);
   WiFi.begin(ssid, password);
 }
@@ -151,40 +148,24 @@ void WiFiEvent(WiFiEvent_t event){
     }
 }
 
-void onOTAStart() {
-  // Log when OTA has started
-  Serial.println("OTA update started!");
-  // <Add your own code here>
-}
-
-void onOTAProgress(size_t current, size_t final) {
-  // Log every 1 second
-  if (millis() - ota_progress_millis > 1000) {
-    ota_progress_millis = millis();
-    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
-  }
-}
-
-void onOTAEnd(bool success) {
-  // Log when OTA has finished
-  if (success) {
-    Serial.println("OTA update finished successfully!");
-  } else {
-    Serial.println("There was an error during OTA update!");
-  }
-  // <Add your own code here>
-}
-
 static void send_message() {
   // Send message
-
-  // Configure message to transmit
   twai_message_t message;
-  message.identifier = 0x25;
-  message.data_length_code = 8;
-  for (int i = 0; i < 4; i++) {
-    message.data[i] = 10;
-  }
+  message.extd = 0;                // 0 = standard frame, 1 = extended frame
+  message.rtr = 0;                 // 0 = data frame, 1 = remote frame
+  message.identifier = REQ_BOXES;  // message ID
+  message.self = 0;                // 0 = normal transmission, 1 = self reception request 
+  message.data_length_code = 0;    // data length code (0-8 bytes)
+  message.dlc_non_comp = 0;        // 0 = data length code is 0-8 bytes, 1 = data length code is larger than 8 bytes
+
+  
+  // Configure message to transmit
+  // twai_message_t message;
+  // message.identifier = 0x25;
+  // message.data_length_code = 8;
+  // for (int i = 0; i < 4; i++) {
+  //   message.data[i] = 10;
+  // }
 
   // Queue message for transmission
   if (twai_transmit(&message, pdMS_TO_TICKS(3000)) == ESP_OK) {
@@ -192,11 +173,12 @@ static void send_message() {
   } else {
     printf("Failed to queue message for transmission\n");
     //twai_initiate_recovery();
-    twai_stop();
-    printf("twai Stoped\n");
-    vTaskDelay(500);
-    twai_start();
-    printf("twai Started\n");
+    // twai_stop();
+    // printf("twai Stoped\n");
+    // vTaskDelay(500);
+    // twai_start();
+    // printf("twai Started\n");
+    // wifiOnConnect();
     vTaskDelay(500);
   }
   vTaskDelay(100);
@@ -284,7 +266,7 @@ void checkLed() {
 
 void TaskTWAI(void *pvParameters) {
   // give some time at boot the cpu setup other parameters
-  //vTaskDelay(1000 / portTICK_PERIOD_MS);
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
 
   // Initialize configuration structures using macro initializers
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)TX_PIN, (gpio_num_t)RX_PIN, TWAI_MODE_NO_ACK);  // TWAI_MODE_NO_ACK , TWAI_MODE_LISTEN_ONLY , TWAI_MODE_NORMAL
@@ -318,7 +300,6 @@ void TaskTWAI(void *pvParameters) {
 
   // TWAI driver is now successfully installed and started
   driver_installed = true;
-
 
 
   for (;;) {
@@ -441,14 +422,9 @@ void setup() {
   }
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", "Hi! This is ElegantOTA AsyncDemo.");
+    request->send(200, "text/plain", "Hi! This is AsyncWebServer.");
   });
 
-  ElegantOTA.begin(&server);    // Start ElegantOTA
-  // ElegantOTA callbacks
-  ElegantOTA.onStart(onOTAStart);
-  ElegantOTA.onProgress(onOTAProgress);
-  ElegantOTA.onEnd(onOTAEnd);
 
   server.begin();
   Serial.println("HTTP server started");
@@ -466,7 +442,6 @@ void printWifi() {
 
 void loop() {
   int cnt = 0;
-  ElegantOTA.loop();
 
   // if(millis() >= time_now + period){
   //   time_now += period;
