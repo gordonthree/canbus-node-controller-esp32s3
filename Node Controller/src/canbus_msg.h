@@ -2,14 +2,14 @@
 #define CAN_MSG_ID_H
 
 // Structure for CAN message ID
-typedef struct {
-    uint16_t id : 11; // 11-bit identifier
-    uint8_t rtr : 1;  // Remote transmission request bit (0 for data, 1 for remote request)
-    uint8_t ide : 1;  // Identifier extension bit (0 for standard, 1 for extended)
-    uint8_t resbit : 1; // always 0
-    uint8_t dlc : 4; // data length code (number of data bytes)
-    uint8_t data[8]; // data field (up to 8 bytes)
-  } can_msg_t;
+// typedef struct {
+//     uint16_t id : 11; // 11-bit identifier
+//     uint8_t rtr : 1;  // Remote transmission request bit (0 for data, 1 for remote request)
+//     uint8_t ide : 1;  // Identifier extension bit (0 for standard, 1 for extended)
+//     uint8_t resbit : 1; // always 0
+//     uint8_t dlc : 4; // data length code (number of data bytes)
+//     uint8_t data[8]; // data field (up to 8 bytes)
+//   } can_msg_t;
   
 // Constants for specific message IDs 
 #define ERROR_OVER_CURRENT 0x100 // over current
@@ -116,8 +116,7 @@ typedef struct {
 
 #define CONTACT_CLOSURE_PULL_DOWN 0x73D // contact closure pull down
 #define CONTACT_CLOSURE_PULL_UP 0x73E // contact closure pull up
-#define CONTACT_CLOSURE_RESERVED 0x73F // contact closure reserved
-#define CONTACT_CLOSURE_RESERVED 0x740 // contact closure reserved
+
 #define AMBIENT_LIGHT_SENSOR 0x741 // ambient light sensor
 #define IMU_X_AXIS_SENSOR 0x742 // IMU X Axis sensor
 #define IMU_Y_AXIS_SENSOR 0x743 // IMU Y Axis sensor
