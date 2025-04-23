@@ -172,12 +172,12 @@ static void send_message() {
     printf("Message queued for transmission\n");
   } else {
     printf("Failed to queue message for transmission\n");
-    //twai_initiate_recovery();
-    // twai_stop();
-    // printf("twai Stoped\n");
-    // vTaskDelay(500);
-    // twai_start();
-    // printf("twai Started\n");
+    twai_initiate_recovery();
+    twai_stop();
+    printf("twai Stoped\n");
+    vTaskDelay(500);
+    twai_start();
+    printf("twai Started\n");
     // wifiOnConnect();
     vTaskDelay(500);
   }
