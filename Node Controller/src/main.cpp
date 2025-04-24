@@ -1,9 +1,9 @@
-#ifdef CORE_DEBUG_LEVEL
-#undef CORE_DEBUG_LEVEL
-#endif
+// #ifdef CORE_DEBUG_LEVEL
+// #undef CORE_DEBUG_LEVEL
+// #endif
 
-#define CORE_DEBUG_LEVEL 3
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+// #define CORE_DEBUG_LEVEL 3
+// #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include <Arduino.h>
 #include <stdio.h>
@@ -159,29 +159,15 @@ void WiFiEvent(WiFiEvent_t event){
     }
 }
 
-static void send_message() {
+static void send_message( twai_message_t message ) {
   // Send message
-  twai_message_t message;
-  message.extd = 0;                // 0 = standard frame, 1 = extended frame
-  message.rtr = 0;                 // 0 = data frame, 1 = remote frame
-  message.identifier = REQ_BOXES;  // message ID
-  message.self = 0;                // 0 = normal transmission, 1 = self reception request 
-  message.data_length_code = 0;    // data length code (0-8 bytes)
-  message.dlc_non_comp = 0;        // 0 = data length code is 0-8 bytes, 1 = data length code is larger than 8 bytes
-
-  
-  // Configure message to transmit
-  // twai_message_t message;
-  // message.identifier = 0x25;
-  // message.data_length_code = 8;
-  // for (int i = 0; i < 4; i++) {
-  //   message.data[i] = 10;
-  // }
 
   // Queue message for transmission
   if (twai_transmit(&message, pdMS_TO_TICKS(3000)) == ESP_OK) {
-    printf("Message queued for transmission\n");
+    // ESP_LOGI(TAG, "Message queued for transmission\n");
+    // printf("Message queued for transmission\n");
   } else {
+    // ESP_LOGE(TAG, "Failed to queue message for transmission, initiating recovery");
     printf("Failed to queue message for transmission\n");
     twai_initiate_recovery();
     twai_stop();
@@ -189,11 +175,11 @@ static void send_message() {
     vTaskDelay(500);
     twai_start();
     printf("twai Started\n");
+    // ESP_LOGI(TAG, "twai restarted\n");
     // wifiOnConnect();
-    ESP_LOGI(TAG, "Failed to queue message for transmission, initiating recovery");
     vTaskDelay(500);
   }
-  vTaskDelay(100);
+  // vTaskDelay(100);
 }
 
 
@@ -202,41 +188,60 @@ static void send_message() {
 
 ///*
 
-static void handle_rx_message(twai_message_t& message) {
+static void handle_rx_message(twai_message_t &message) {
+  static twai_message_t altmessage;
+
   // Process received message
-  if (message.extd) {
-    Serial.println("Message is in Extended Format");
-  } else {
-    Serial.println("Message is in Standard Format");
-  }
-  Serial.printf("ID: %x\nByte:", message.identifier);
-  if (!(message.rtr)) {
-    for (int i = 0; i < message.data_length_code; i++) {
-      Serial.printf(" %d = %02x,", i, message.data[i]);
+  // if (message.extd) {
+  //   Serial.println("Message is in Extended Format");
+  // } else {
+  //   Serial.println("Message is in Standard Format");
+  // }
+  if (message.data_length_code > 0) {
+    Serial.printf("RECV ID: %x\nByte:", message.identifier);
+    if (!(message.rtr)) {
+      for (int i = 0; i < message.data_length_code; i++) {
+        Serial.printf(" %d = %02x,", i, message.data[i]);
+      }
+      Serial.println("");
     }
-    Serial.println("");
+  } else {
+    Serial.printf("RECV ID: %x\n", message.identifier);
   }
 
+
   // WORKING0
-  // if (message.identifier == 0x20) {
-  //   // working also and with 02  instead of  0x02
-  //   if (message.data[0] == 0x01) {
-  //     if (Moving == false) {
-  //       Serial.println("Down call");
-  //       if (Calls != 0 && FloorPosition != 0) {
-  //         Calls = 0;
-  //       }
-  //     }
-  //   }
-  //   if (message.data[0] == 0x02) {
-  //     if (Moving == false) {
-  //       Serial.println("up call");
-  //       if (Calls != 1 && FloorPosition != 1) {
-  //         Calls = 1;
-  //       }
-  //     }
-  //   }
-  // }
+  if (message.identifier == REQ_INTERFACES) {
+    Serial.println("Introduction request, responding with 0x702");
+      // Send message
+    altmessage.extd = 0;                // 0 = standard frame, 1 = extended frame
+    altmessage.rtr = 0;                 // 0 = data frame, 1 = remote frame
+    altmessage.identifier = IFACE_TOUCHSCREEN_TYPE_A;  // message ID
+    altmessage.self = 1;                // 0 = normal transmission, 1 = self reception request 
+    altmessage.data_length_code = 6;    // data length code (0-8 bytes)
+    altmessage.dlc_non_comp = 0;
+    uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+    memcpy(altmessage.data, dataBytes, sizeof(dataBytes));
+    
+    send_message(altmessage);
+  } else if ((message.identifier & MASK_INTERFACE) == INTRO_INTERFACE) { // received an interface introduction
+    Serial.printf("Received introduction 0x%x\n", message.identifier);
+      // Send message
+    altmessage.extd = 0;                // 0 = standard frame, 1 = extended frame
+    altmessage.rtr = 0;                 // 0 = data frame, 1 = remote frame
+    altmessage.identifier = ACK_INTRODUCTION;  // acknowledge introduction 
+    altmessage.self = 1;                // 0 = normal transmission, 1 = self reception request 
+    altmessage.data_length_code = 4;    // data length code (0-8 bytes)
+    altmessage.dlc_non_comp = 0;
+    uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55}; // data bytes
+    memcpy(altmessage.data, dataBytes, sizeof(dataBytes));
+    
+    send_message(altmessage);
+  } else if (message.identifier == ACK_INTRODUCTION) { // received a message
+    Serial.println("Received introduction acknowledgement!");
+  }
+
+
 }
 
 void checkLed() {
@@ -282,7 +287,7 @@ void TaskTWAI(void *pvParameters) {
 
   // Initialize configuration structures using macro initializers
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)TX_PIN, (gpio_num_t)RX_PIN, TWAI_MODE_NO_ACK);  // TWAI_MODE_NO_ACK , TWAI_MODE_LISTEN_ONLY , TWAI_MODE_NORMAL
-  twai_timing_config_t t_config = TWAI_TIMING_CONFIG_50KBITS();  //Look in the api-reference for other speed sets.
+  twai_timing_config_t t_config = TWAI_TIMING_CONFIG_250KBITS();  //Look in the api-reference for other speed sets.
   twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
   // Install TWAI driver
@@ -317,7 +322,7 @@ void TaskTWAI(void *pvParameters) {
   for (;;) {
     if (!driver_installed) {
       // Driver not installed
-      delay(1000);
+      vTaskDelay(1000);
       return;
     }
     // Check if alert happened
@@ -344,8 +349,8 @@ void TaskTWAI(void *pvParameters) {
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_SUCCESS) {
-      Serial.println("Alert: The Transmission was successful.");
-      Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
+      // Serial.println("Alert: The Transmission was successful.");
+      // Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
     }
 
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
@@ -357,7 +362,7 @@ void TaskTWAI(void *pvParameters) {
 
     // Check if message is received
     if (alerts_triggered & TWAI_ALERT_RX_DATA) {
-      Serial.println("Testing line");
+      // Serial.println("Testing line");
       // One or more messages received. Handle all.
       twai_message_t message;
       while (twai_receive(&message, 0) == ESP_OK) {
@@ -368,7 +373,15 @@ void TaskTWAI(void *pvParameters) {
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= TRANSMIT_RATE_MS) {
       previousMillis = currentMillis;
-      send_message();
+      twai_message_t altmessage;
+      altmessage.extd = 0;                // 0 = standard frame, 1 = extended frame
+      altmessage.rtr = 0;                 // 0 = data frame, 1 = remote frame
+      altmessage.identifier = REQ_INTERFACES;  // message ID
+      altmessage.self = 1;                // 0 = normal transmission, 1 = self reception request 
+      altmessage.data_length_code = 0;    // data length code (0-8 bytes)
+      altmessage.dlc_non_comp = 0; 
+  
+      send_message(altmessage);
     }
     vTaskDelay(10);
   }
@@ -392,10 +405,10 @@ void setup() {
   xTaskCreate(
     TaskTWAI,     // Task function.
     "Task TWAI",  // name of task.
-    2048,         // Stack size of task
+    3172,         // Stack size of task
     NULL,         // parameter of the task
     1,            // priority of the task
-    NULL    // Task handle to keep track of created task
+    NULL          // Task handle to keep track of created task
   );              // pin task to core 0
   //tskNO_AFFINITY); // pin task to core is automatic depends the load of each core
 
@@ -412,7 +425,7 @@ void setup() {
 
   FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
 
-  Serial.begin(115200);
+  Serial.begin(921600);
   Serial.setDebugOutput(true);
 
   WiFi.onEvent(WiFiEvent);
