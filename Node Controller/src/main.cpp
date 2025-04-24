@@ -198,7 +198,7 @@ static void handle_rx_message(twai_message_t &message) {
   //   Serial.println("Message is in Standard Format");
   // }
   if (message.data_length_code > 0) {
-    Serial.printf("RECV ID: %x\nByte:", message.identifier);
+    Serial.printf("RECV ID: 0x%x\nByte:", message.identifier);
     if (!(message.rtr)) {
       for (int i = 0; i < message.data_length_code; i++) {
         Serial.printf(" %d = %02x,", i, message.data[i]);
@@ -206,7 +206,7 @@ static void handle_rx_message(twai_message_t &message) {
       Serial.println("");
     }
   } else {
-    Serial.printf("RECV ID: %x\n", message.identifier);
+    Serial.printf("RECV ID: 0x%x\n", message.identifier);
   }
 
 
@@ -238,7 +238,7 @@ static void handle_rx_message(twai_message_t &message) {
     
     send_message(altmessage);
   } else if (message.identifier == ACK_INTRODUCTION) { // received a message
-    Serial.println("Received introduction acknowledgement!");
+    Serial.println("Received introduction acknowledgement, starting over!\n");
   }
 
 
