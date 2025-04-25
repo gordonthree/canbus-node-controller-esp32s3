@@ -20,9 +20,6 @@
 // Load FastLED
 #include <FastLED.h>
 
-// CAN bus library
-//#include <ESP32-TWAI-CAN.hpp>
-
 // Webserver and file system
 #define SPIFFS LittleFS
 #include <LittleFS.h>
@@ -34,12 +31,17 @@ static AsyncWebServer server(80);
 // my secrets
 #include "secrets.h"
 
-// my canbus message ids
+// my canbus stuff
 #include "canbus_msg.h"
+#include "canbus_flags.h"
+#define CAN_MY_IFACE_TYPE IFACE_TOUCHSCREEN_TYPE_A
+#define CAN_SELF_MSG 1
 
+
+// esp32 native logging library
 #include "esp_log.h"
 
-
+// esp32 native TWAI / CAN library
 #include "driver/twai.h"
 
 // Pins used to connect to CAN bus transceiver:
@@ -106,7 +108,6 @@ void wifiOnConnect(){
   Serial.println(WiFi.SSID());
   Serial.print("STA IPv4: ");
   Serial.println(WiFi.localIP());
-
 }
 
 //when wifi disconnects
@@ -159,16 +160,28 @@ void WiFiEvent(WiFiEvent_t event){
     }
 }
 
-static void send_message( twai_message_t message ) {
-  // Send message
+static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
+  static twai_message_t message;
+  static uint8_t dataBytes[] = {0, 0, 0, 0, 0, 0, 0, 0}; // initialize dataBytes array with 8 bytes of 0
 
+  // Format message
+  message.identifier = msgid;       // set message ID
+  message.extd = 0;                 // 0 = standard frame, 1 = extended frame
+  message.rtr = 0;                  // 0 = data frame, 1 = remote frame
+  message.self = CAN_SELF_MSG;      // 0 = normal transmission, 1 = self reception request 
+  message.dlc_non_comp = 0;         // non-compliant DLC (0-8 bytes)  
+  message.data_length_code = dlc;   // data length code (0-8 bytes)
+  memcpy(message.data, data, dlc);  // copy data to message data field 
+  
   // Queue message for transmission
   if (twai_transmit(&message, pdMS_TO_TICKS(3000)) == ESP_OK) {
     // ESP_LOGI(TAG, "Message queued for transmission\n");
     // printf("Message queued for transmission\n");
   } else {
+    leds[0] = CRGB::Red;
+    FastLED.show();
     // ESP_LOGE(TAG, "Failed to queue message for transmission, initiating recovery");
-    printf("Failed to queue message for transmission\n");
+    printf("Failed to queue message for transmission, resetting controller\n");
     twai_initiate_recovery();
     twai_stop();
     printf("twai Stoped\n");
@@ -178,19 +191,45 @@ static void send_message( twai_message_t message ) {
     // ESP_LOGI(TAG, "twai restarted\n");
     // wifiOnConnect();
     vTaskDelay(500);
+    leds[0] = CRGB::Black;
+    FastLED.show();
   }
   // vTaskDelay(100);
 }
 
+static void setSwitchMode(uint8_t *data) {
+  // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+}
 
+static void setSwitchOn(uint8_t *data) {
+  // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID
+}
 
+static void setSwitchOff(uint8_t *data) {
+  // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID
+}
 
+static void sendIntroduction() {
+  uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+  send_message(CAN_MY_IFACE_TYPE, dataBytes, sizeof(dataBytes));
 
-///*
+}
+
+static void sendIntroack() {
+  uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55}; // data bytes
+  send_message(ACK_INTRODUCTION, dataBytes, sizeof(dataBytes));
+}
+
 
 static void handle_rx_message(twai_message_t &message) {
-  static twai_message_t altmessage;
-
+  // static twai_message_t altmessage;
+  static bool msgFlag = false;
+  
+  leds[0] = CRGB::Green;
+  FastLED.show();
   // Process received message
   // if (message.extd) {
   //   Serial.println("Message is in Extended Format");
@@ -198,10 +237,10 @@ static void handle_rx_message(twai_message_t &message) {
   //   Serial.println("Message is in Standard Format");
   // }
   if (message.data_length_code > 0) {
-    Serial.printf("RECV ID: 0x%x\nByte:", message.identifier);
+    Serial.printf("RECV ID: 0x%x Bytes:", message.identifier);
     if (!(message.rtr)) {
       for (int i = 0; i < message.data_length_code; i++) {
-        Serial.printf(" %d = %02x,", i, message.data[i]);
+        Serial.printf(" %d = 0x%02x", i, message.data[i]);
       }
       Serial.println("");
     }
@@ -210,76 +249,97 @@ static void handle_rx_message(twai_message_t &message) {
   }
 
 
-  // WORKING0
-  if (message.identifier == REQ_INTERFACES) {
-    Serial.println("Introduction request, responding with 0x702");
-      // Send message
-    altmessage.extd = 0;                // 0 = standard frame, 1 = extended frame
-    altmessage.rtr = 0;                 // 0 = data frame, 1 = remote frame
-    altmessage.identifier = IFACE_TOUCHSCREEN_TYPE_A;  // message ID
-    altmessage.self = 1;                // 0 = normal transmission, 1 = self reception request 
-    altmessage.data_length_code = 6;    // data length code (0-8 bytes)
-    altmessage.dlc_non_comp = 0;
-    uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
-    memcpy(altmessage.data, dataBytes, sizeof(dataBytes));
+  switch (message.identifier) {
+    case SW_SET_OFF:            // set output switch off
+      break;
+    case SW_SET_ON:             // set output switch on
+      break;
+    case SW_MOM_PRESS:          // set output switch off
+      break;
+    case SW_SET_MODE:           // setup output switch modes
+      setSwitchMode(message.data);
+      break;
+    case SW_SET_PWM_DUTY:          // set output switch off
+      break;
+    case SW_SET_PWM_FREQ:          // set output switch off
+      break;
+    case SW_SET_MOM_DUR:          // set output switch off
+      break;
+    case SW_SET_BLINK_DELAY:          // set output switch off
+      break;
+    case SW_SET_STROBE_PAT:          // set output switch off
+      break;
+    case SET_DISPLAY_OFF:          // set output switch off
+      break;
+    case SET_DISPLAY_ON:          // set output switch off
+      break;    
+    case SET_DISPLAY_CLEAR:          // set output switch off
+      break;
+    case SET_DISPLAY_FLASH:          // set output switch off
+      break;
+
+
+
+
+      case REQ_INTERFACES:
+      Serial.println("Interface intro request, responding with 0x702");
+      FLAG_SEND_INTRODUCTION = true; // set flag to send introduction message
+      sendIntroduction(); // send our introduction message
+      break;
+
+    case ACK_INTRODUCTION:
+      Serial.println("Received introduction acknowledgement, starting over!\n");    
+      FLAG_SEND_INTRODUCTION = false; // stop sending introduction messages
+      break;
     
-    send_message(altmessage);
-  } else if ((message.identifier & MASK_INTERFACE) == INTRO_INTERFACE) { // received an interface introduction
-    Serial.printf("Received introduction 0x%x\n", message.identifier);
-      // Send message
-    altmessage.extd = 0;                // 0 = standard frame, 1 = extended frame
-    altmessage.rtr = 0;                 // 0 = data frame, 1 = remote frame
-    altmessage.identifier = ACK_INTRODUCTION;  // acknowledge introduction 
-    altmessage.self = 1;                // 0 = normal transmission, 1 = self reception request 
-    altmessage.data_length_code = 4;    // data length code (0-8 bytes)
-    altmessage.dlc_non_comp = 0;
-    uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55}; // data bytes
-    memcpy(altmessage.data, dataBytes, sizeof(dataBytes));
-    
-    send_message(altmessage);
-  } else if (message.identifier == ACK_INTRODUCTION) { // received a message
-    Serial.println("Received introduction acknowledgement, starting over!\n");
+    default:
+      if ((message.identifier & MASK_INTERFACE) == INTRO_INTERFACE) { // received an interface introduction
+        Serial.printf("Received introduction 0x%x\n", message.identifier);
+        sendIntroack();
+      }
+  
+      break;
   }
 
 
-}
+} // end of handle_rx_message
 
-void checkLed() {
+// void checkLed() {
 
-  static volatile int last_i = -1; // Keep track of the last state
+//   static volatile int last_i = -1; // Keep track of the last state
 
-// Only update LED and print if 'i' has changed
+// // Only update LED and print if 'i' has changed
 
-  if (i != last_i) {
-    if (i == 1) 
-    { 
-      leds[0] = CRGB::Red;
-      FastLED.show();
-      // Serial.println("RED LED is ON");
-    } 
-    else if (i == 2)
-    {
-      leds[0] = CRGB::Yellow;
-      FastLED.show();
-      // Serial.println("GREEN LED is ON");
-    } 
-    else if (i == 3)
-    {
-      leds[0] = CRGB::Green;
-      FastLED.show();
-      // Serial.println("BLUE LED is ON");
-    } 
-    else if (i >= 4) 
-    {
-      leds[0] = CRGB::Blue;
-      FastLED.show();
-      // Serial.println("LED's are OFF");
-      i = 0;
-    }
+//   if (i != last_i) {
+//     if (i == 1) 
+//     { 
+//       leds[0] = CRGB::Red;
+//       FastLED.show();
+//       // Serial.println("RED LED is ON");
+//     } 
+//     else if (i == 2)
+//     {
+//       leds[0] = CRGB::Yellow;
+//       FastLED.show();
+//       // Serial.println("GREEN LED is ON");
+//     } 
+//     else if (i == 3)
+//     {
+//       leds[0] = CRGB::Green;
+//       FastLED.show();
+//       // Serial.println("BLUE LED is ON");
+//     } 
+//     else if (i >= 4) 
+//     {
+//       leds[0] = CRGB::Blue;
+//       FastLED.show();
+//       // Serial.println("LED's are OFF");
+//       i = 0;
+//     }
 
-    last_i = i; // Update the last known state
-  }
-}
+//     last_i = i; // Update the last known state
+//   }
+// }
 
 void TaskTWAI(void *pvParameters) {
   // give some time at boot the cpu setup other parameters
@@ -334,11 +394,15 @@ void TaskTWAI(void *pvParameters) {
     // Handle alerts
     if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
       Serial.println("Alert: TWAI controller has become error passive.");
+      leds[0] = CRGB::Red;
+      FastLED.show();
     }
 
     if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
       Serial.println("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus.");
       Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
+      leds[0] = CRGB::Red;
+      FastLED.show();
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
@@ -346,14 +410,20 @@ void TaskTWAI(void *pvParameters) {
       Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
       Serial.printf("TX error: %d\t", twaistatus.tx_error_counter);
       Serial.printf("TX failed: %d\n", twaistatus.tx_failed_count);
+      leds[0] = CRGB::Red;
+      FastLED.show();
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_SUCCESS) {
+      leds[0] = CRGB::Green;
+      FastLED.show();
       // Serial.println("Alert: The Transmission was successful.");
       // Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
     }
 
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
+      leds[0] = CRGB::Red;
+      FastLED.show();
       Serial.println("Alert: The RX queue is full causing a received frame to be lost.");
       Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
       Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
@@ -362,6 +432,8 @@ void TaskTWAI(void *pvParameters) {
 
     // Check if message is received
     if (alerts_triggered & TWAI_ALERT_RX_DATA) {
+      leds[0] = CRGB::Yellow;
+      FastLED.show();
       // Serial.println("Testing line");
       // One or more messages received. Handle all.
       twai_message_t message;
@@ -372,34 +444,22 @@ void TaskTWAI(void *pvParameters) {
     // Send message
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= TRANSMIT_RATE_MS) {
+      leds[0] = CRGB::Blue;
+      FastLED.show();
       previousMillis = currentMillis;
-      twai_message_t altmessage;
-      altmessage.extd = 0;                // 0 = standard frame, 1 = extended frame
-      altmessage.rtr = 0;                 // 0 = data frame, 1 = remote frame
-      altmessage.identifier = REQ_INTERFACES;  // message ID
-      altmessage.self = 1;                // 0 = normal transmission, 1 = self reception request 
-      altmessage.data_length_code = 0;    // data length code (0-8 bytes)
-      altmessage.dlc_non_comp = 0; 
-  
-      send_message(altmessage);
+      send_message(REQ_INTERFACES, NULL, 0); // send our introduction request
     }
     vTaskDelay(10);
   }
 }
 
-void TaskFLED(void *pvParameters) {
-  checkLed();
-  vTaskDelay(250);
-}
-
-
 void setup() {
   delay(5000);
 
-  Timer0_Cfg = timerBegin(0, 80, true);
-  timerAttachInterrupt(Timer0_Cfg, &Timer0_ISR, true);
-  timerAlarmWrite(Timer0_Cfg, 100000, true);
-  timerAlarmEnable(Timer0_Cfg);
+  // Timer0_Cfg = timerBegin(0, 80, true);
+  // timerAttachInterrupt(Timer0_Cfg, &Timer0_ISR, true);
+  // timerAlarmWrite(Timer0_Cfg, 100000, true);
+  // timerAlarmEnable(Timer0_Cfg);
 
 
   xTaskCreate(
@@ -424,6 +484,8 @@ void setup() {
   //tskNO_AFFINITY); // pin task to core is automatic depends the load of each core
 
   FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
+  leds[0] = CRGB::Black;
+  FastLED.show();
 
   Serial.begin(921600);
   Serial.setDebugOutput(true);
@@ -480,14 +542,14 @@ void loop() {
 
     i++;
     ipCnt++;
-    checkLed();
+    // checkLed();
 
   }
 
-  if (ipCnt>=100 && ipaddFlag) {
-    ipaddFlag = false;
-    printWifi();
-  }
+  // if (ipCnt>=100 && ipaddFlag) {
+  //   ipaddFlag = false;
+  //   printWifi();
+  // }
   // checkLed();
   // NOP;
 }

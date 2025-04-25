@@ -13,18 +13,17 @@
 #define ERROR_OVER_TEMP 0x101 // over temp DLC 6
 #define ERROR_OVER_VOLT 0x102 // over volt DLC 6
 
-#define MSG_NORM_OPER 0x10A // message to all nodes to being normal operation, sent after introduction and enumeration are complete DLC 1
-#define MSG_HALT_OPER 0x10B // message to all nodes to stop transmitting messages and wait for instructions DLC 1
+#define MSG_NORM_OPER 0x108 // message to all nodes to being normal operation, sent after introduction and enumeration are complete DLC 
+#define MSG_HALT_OPER 0x109 // message to all nodes to stop transmitting messages and wait for instructions DLC 
 
-
-#define SW_SET_OUT_MODE 0x10A // switch set output mode (pwm, one-shot, solid-state, blinking, strobing) DLC 7
-
-
-#define SW_MOM_PRESS 0x10D // switch momentary press DLC 6
+#define SW_SET_MODE 0x10A // switch set output mode (pwm, one-shot, solid-state, blinking, strobing) DLC 7
+#define SW_SET_OFF 0x10B // switch off DLC 6
+#define SW_SET_ON 0x10C // switch on DLC 6
+#define SW_MOM_PRESS 0x10D // switch momentary press DLC 6#define SW_SET_MOM_DUR 0x10E // set momentary switch duration ms DLC 8
 #define SW_SET_MOM_DUR 0x10E // set momentary switch duration ms DLC 8
 #define SW_SET_PWM_DUTY 0x10F // switch set pwm duty DLC 8
 #define SW_SET_PWM_FREQ 0x110 // switch set pwm freq DLC 8
-#define SW_SET_BLINK 0x111 // switch set blink delay in tenths of a second 1-100 DLC 7
+#define SW_SET_BLINK_DELAY 0x111 // switch set blink delay in tenths of a second 1-100 DLC 7
 #define SW_SET_STROBE_PAT 0x112 // switch set strobe pattern DLC 7
 
 #define SET_DISPLAY_OFF 0x200 // set display off DLC 6
