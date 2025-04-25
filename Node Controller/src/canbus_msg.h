@@ -16,7 +16,9 @@
 #define MSG_NORM_OPER 0x10A // message to all nodes to being normal operation, sent after introduction and enumeration are complete DLC 1
 #define MSG_HALT_OPER 0x10B // message to all nodes to stop transmitting messages and wait for instructions DLC 1
 
+
 #define SW_SET_OUT_MODE 0x10A // switch set output mode (pwm, one-shot, solid-state, blinking, strobing) DLC 7
+
 
 #define SW_MOM_PRESS 0x10D // switch momentary press DLC 6
 #define SW_SET_MOM_DUR 0x10E // set momentary switch duration ms DLC 8
@@ -110,23 +112,19 @@
 #define IFACE_TOUCHSCREEN_TYPE_A 0x702 // touchscreen type a DLC 6
 #define IFACE_TOUCHSCREEN_TYPE_B 0x703 // touchscreen type b DLC 6
 
-
 #define IFACE_NEXTION_TYPE_A 0x706 // nextion type a DLC 6
 #define IFACE_NEXTION_TYPE_B 0x707 // nextion type b DLC 6
 
 #define IFACE_3X5_BUTTON_BOX 0x70C // 3x5 button box DLC 6
 #define IFACE_4X6_BUTTON_BOX 0x70D // 4x6 button box DLC 6
 
-
 #define DISP_ANALOG_LED_STRIP 0x710 // analog led strip DLC 8
 #define DISP_ARGBW_LED_STRIP 0x711 // argbw led strip DLC 8
 #define DISP_ARGB_LED_STRIP 0x712 // argb led strip DLC 8
 
-
 #define DISP_OLED 0x715 // non-touch oled display DLC 8
 
 #define DISP_LCD 0x717 // lcd display DLC 8
-
 
 #define OUT_HIGH_CURRENT_SW 0x71A // high current solid state switch DLC 8
 #define OUT_LOW_CURRENT_SW 0x71B // low current solid state switch DLC 8
@@ -146,8 +144,6 @@
 
 #define INPUT_RFID_READER 0x72A // RFID reader input DLC 6
 
-
-
 #define EXT_DIGITAL_TEMP 0x72E // ext digital temp DLC 6
 #define EXT_ANALOG_K_TYPE_TEMP 0x72F // ext analog k type temp DLC 6
 
@@ -157,11 +153,9 @@
 #define EXTERNAL_VOLTAGE_SENSOR 0x734 // external voltage sensor DLC 6
 #define INTERNAL_VOLTAGE_SENSOR 0x735 // internal voltage sensor DLC 6
 
-
 #define INTERNAL_PCB_CURRENT_SENSOR 0x738 // internal pcb current sensor DLC 6
 #define EXTERNAL_CURRENT_SHUNT 0x739 // external current shunt DLC 6
 #define EXTERNAL_CURRENT_HALL 0x73A // external current hall DLC 6
-
 
 #define CONTACT_CLOSURE_PULL_DOWN 0x73D // contact closure pull down DLC 6
 #define CONTACT_CLOSURE_PULL_UP 0x73E // contact closure pull up DLC 6
@@ -174,6 +168,7 @@
 #define IMU_X_GYRO_SENSOR 0x745 // IMU X Gyro sensor DLC 6
 #define IMU_Y_GYRO_SENSOR 0x746 // IMU Y Gyro sensor DLC 6
 #define IMU_Z_GYRO_SENSOR 0x747 // IMU Z Gyro sensor DLC 6
+
 
 #define SWITCH_BOX_3GANG 0x750 // 3 gang switch box, 2 high, 1 low DLC 6
 #define SWITCH_BOX_4GANG 0x751 // 4-gang switch box, 2 high, 2 low DLC 6
