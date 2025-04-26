@@ -8,22 +8,16 @@
 #include <Arduino.h>
 #include <stdio.h>
 
-#ifdef ESP32
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#elif STM32F103C6T6
-#include <STM32FreeRTOS.h>
-#endif
 
 // Load Wi-Fi networking
-#ifdef ESP32
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
 
 static AsyncWebServer server(80);
-#endif
 
 // #include <ESPAsync_WiFiManager.h>               //https://github.com/khoih-prog/ESPAsync_WiFiManager
 
@@ -47,27 +41,12 @@ static AsyncWebServer server(80);
 #define CAN_SELF_MSG 1
 
 
-#ifdef ESP32
 // esp32 native TWAI / CAN library
 #include "driver/twai.h"
 
 // Pins used to connect to CAN bus transceiver:
 #define RX_PIN 39
 #define TX_PIN 38
-#elif STM32F103C6T6
-#include "STM32_CAN.h"
-#include "STM32FreeRTOS.h"
-
-STM32_CAN Can( CAN1, DEF );  //Use PA11/12 pins for CAN1.
-//STM32_CAN Can( CAN1, ALT );  //Use PB8/9 pins for CAN1.
-//STM32_CAN Can( CAN1, ALT_2 );  //Use PD0/1 pins for CAN1.
-//STM32_CAN Can( CAN2, DEF );  //Use PB12/13 pins for CAN2.
-//STM32_CAN Can( CAN2, ALT );  //Use PB5/6 pins for CAN2
-//STM32_CAN Can( CAN3, DEF );  //Use PA8/15 pins for CAN3.
-//STM32_CAN Can( CAN3, ALT );  //Use PB3/4 pins for CAN3
-
-static CAN_message_t CAN_TX_msg;
-#endif
 
 // Intervall:
 #define TRANSMIT_RATE_MS 1000
@@ -576,7 +555,6 @@ void setup() {
   // timerAlarmWrite(Timer0_Cfg, 100000, true);
   // timerAlarmEnable(Timer0_Cfg);
 
-#ifdef ESP32
   xTaskCreate(
     TaskTWAI,     // Task function.
     "Task TWAI",  // name of task.
@@ -586,11 +564,6 @@ void setup() {
     NULL          // Task handle to keep track of created task
   );              // pin task to core 0
   //tskNO_AFFINITY); // pin task to core is automatic depends the load of each core
-#elif STM32F103C6T6
-  Can.begin();
-  //Can.setBaudRate(250000);  //250KBPS
-  Can.setBaudRate(500000);  //500KBPS
-#endif
 
   // xTaskCreate(
   //   TaskFLED,     // Task function.
@@ -608,7 +581,7 @@ void setup() {
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
-#ifdef ESP32
+
   WiFi.onEvent(WiFiEvent);
   WiFi.mode(WIFI_MODE_APSTA);
   WiFi.softAP(AP_SSID);
@@ -634,7 +607,6 @@ void setup() {
 
   server.begin();
   Serial.println("HTTP server started");
-#endif
 
 }
 
