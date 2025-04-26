@@ -13,6 +13,7 @@
 
 // Load Wi-Fi networking
 #include <WiFi.h>
+#include "esp_wifi.h"
 #include <AsyncTCP.h>
 #include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
@@ -96,10 +97,28 @@ CRGB leds[NUM_LEDS];
 unsigned long ota_progress_millis = 0;
 
 static volatile bool wifi_connected = false;
+static volatile uint8_t myNodeID[] = {0, 0, 0, 0}; // node ID
 
 void IRAM_ATTR Timer0_ISR()
 {
   isrFlag = true;
+}
+
+void readMacAddress(){
+  uint8_t baseMac[6];
+  esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, baseMac);
+  if (ret == ESP_OK) {
+    /* Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
+                  baseMac[0], baseMac[1], baseMac[2],
+                  baseMac[3], baseMac[4], baseMac[5]); */
+    myNodeID[0] = baseMac[2];
+    myNodeID[1] = baseMac[3];
+    myNodeID[2] = baseMac[4];
+    myNodeID[3] = baseMac[5];
+    // Serial.printf("Node ID: %02x:%02x:%02x:%02x\n", myNodeID[0], myNodeID[1], myNodeID[2], myNodeID[3]);
+  } else {
+    Serial.println("Failed to set NODE ID");
+  }
 }
 
 void wifiOnConnect(){
@@ -164,6 +183,8 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
   static twai_message_t message;
   static uint8_t dataBytes[] = {0, 0, 0, 0, 0, 0, 0, 0}; // initialize dataBytes array with 8 bytes of 0
 
+  leds[0] = CRGB::Blue;
+  FastLED.show();
   // Format message
   message.identifier = msgid;       // set message ID
   message.extd = 0;                 // 0 = standard frame, 1 = extended frame
@@ -194,26 +215,28 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
     leds[0] = CRGB::Black;
     FastLED.show();
   }
+  leds[0] = CRGB::Black;
+  FastLED.show();
   // vTaskDelay(100);
 }
 
 static void setDisplayMode(uint8_t *data, uint8_t displayMode) {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
-  static uint16_t displayID = (data[4] << 8) | data[5]; // switch ID
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint16_t rxdisplayID = (data[4] << 8) | data[5]; // switch ID
+  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
   
   switch (displayMode) {
     case 0: // display off
-      Serial.printf("Unit %d Display %d OFF\n", unitID, displayID);
+      Serial.printf("Unit %d Display %d OFF\n", rxunitID, rxdisplayID);
       break;
     case 1: // display on
-      Serial.printf("Unit %d Display %d ON\n", unitID, displayID);
+      Serial.printf("Unit %d Display %d ON\n", rxunitID, rxdisplayID);
       break;
     case 2: // clear display
-      Serial.printf("Unit %d Display %d CLEAR\n", unitID, displayID);
+      Serial.printf("Unit %d Display %d CLEAR\n", rxunitID, rxdisplayID);
       break;
     case 3: // flash display
-      Serial.printf("Unit %d Display %d FLASH\n", unitID, displayID);
+      Serial.printf("Unit %d Display %d FLASH\n", rxunitID, rxdisplayID);
       break;
     default:
       Serial.println("Invalid display mode");
@@ -223,27 +246,27 @@ static void setDisplayMode(uint8_t *data, uint8_t displayMode) {
 
 static void setSwMomDur(uint8_t *data) {
   static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
   static uint16_t swDuration = (data[6] << 8) | data[7]; // duration in msD 
 }
 
 
 static void setSwBlinkDelay(uint8_t *data) {
   static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
   static uint16_t swBlinkDelay = (data[6] << 8) | data[7]; // delay in ms 
 }
 
 static void setSwStrobePat(uint8_t *data) {
   static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
   static uint8_t swStrobePat = data[6]; // strobe pattern
 }
 
 
 static void setPWMDuty(uint8_t *data) {
   static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
   static uint16_t PWMDuty = (data[6] << 8) | data[7]; // switch ID 
 }
 
@@ -275,20 +298,50 @@ static void setSwitchMode(uint8_t *data) {
 
 }
 
+static void txSwitchState(uint8_t *txUnitID, uint16_t txSwitchID, uint8_t swState) {
+  static uint8_t dataBytes[8];
+  static uint8_t txDLC = 6;
+  
+  dataBytes[0] = txUnitID[0]; // set unit ID
+  dataBytes[1] = txUnitID[1]; // set unit ID
+  dataBytes[2] = txUnitID[2]; // set unit ID
+  dataBytes[3] = txUnitID[3]; // set unit ID
+  dataBytes[4] = (txSwitchID >> 8) & 0xFF; // set switch ID
+  dataBytes[5] = txSwitchID & 0xFF; // set switch ID
+  
+
+  switch (swState) {
+
+  case 0: // switch off
+    send_message(SW_SET_OFF, dataBytes, txDLC);
+    break;
+  case 1: // switch on
+    send_message(SW_SET_ON, dataBytes, txDLC);
+    break;
+  case 2: // momentary press
+    send_message(SW_MOM_PRESS, dataBytes, txDLC);
+    break;
+  default: // unsupported state
+    Serial.println("Invalid switch state for transmission");
+    break;
+  }
+}
+
+
 static void setSwitchState(uint8_t *data, uint8_t swState) {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
   static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint8_t unitID[] = {data[0], data[1], data[2], data[3]}; // unit ID
   
   switch (swState) {
     case 0: // switch off
-      Serial.printf("Unit %d Switch %d OFF\n", unitID, switchID);
+      Serial.printf("Unit %02x:%02x:%02x:%02x Switch %d OFF\n", unitID[0],unitID[1],unitID[2],unitID[3], switchID);
       break;
     case 1: // switch on
-      Serial.printf("Unit %d Switch %d ON\n", unitID, switchID);
+      Serial.printf("Unit %02x:%02x:%02x:%02x Switch %d ON\n", unitID[0],unitID[1],unitID[2],unitID[3], switchID);
       break;
     case 2: // momentary press
-      Serial.printf("Unit %d Switch %d MOMENTARY PRESS\n", unitID, switchID);
+      Serial.printf("Unit %02x:%02x:%02x:%02x Switch %d MOMENTARY PRESS\n", unitID[0],unitID[1],unitID[2],unitID[3], switchID);
       break;
     default:
       Serial.println("Invalid switch state");
@@ -300,47 +353,71 @@ static void setSwitchState(uint8_t *data, uint8_t swState) {
 
 static void sendIntroduction() {
   uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+  dataBytes[0] = myNodeID[0]; // set node ID
+  dataBytes[1] = myNodeID[1]; // set node ID
+  dataBytes[2] = myNodeID[2]; // set node ID
+  dataBytes[3] = myNodeID[3]; // set node ID
+
   send_message(CAN_MY_IFACE_TYPE, dataBytes, sizeof(dataBytes));
 
 }
 
 static void sendIntroack() {
-  uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55}; // data bytes
-  send_message(ACK_INTRODUCTION, dataBytes, sizeof(dataBytes));
+  // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55}; // data bytes
+  send_message(ACK_INTRODUCTION, (uint8_t *)myNodeID, 4);
 }
 
 
 static void handle_rx_message(twai_message_t &message) {
   // static twai_message_t altmessage;
   static bool msgFlag = false;
-  
-  leds[0] = CRGB::Green;
+  leds[0] = CRGB::Orange;
   FastLED.show();
-  // Process received message
-  // if (message.extd) {
-  //   Serial.println("Message is in Extended Format");
-  // } else {
-  //   Serial.println("Message is in Standard Format");
-  // }
-  if (message.data_length_code > 0) {
-    Serial.printf("RECV ID: 0x%x Bytes:", message.identifier);
-    if (!(message.rtr)) {
-      for (int i = 0; i < message.data_length_code; i++) {
-        Serial.printf(" %d = 0x%02x", i, message.data[i]);
-      }
-      Serial.println("");
+
+
+  if (message.data_length_code > 0) { // message contains data, check if it is for us
+    static uint8_t rxUnitID[4] = {message.data[0], message.data[1], message.data[2], message.data[3]};
+    static int comp = memcmp((const void *)rxUnitID, (const void *)myNodeID, 4);
+
+    if (comp == 0) {
+      msgFlag = true; // message is for us
+      leds[0] = CRGB::Green;
+      FastLED.show();
+      Serial.printf("Node Match MSG ID: 0x%x Data:", message.identifier);
+    } else {
+      msgFlag = false; // message is not for us
+    
+      Serial.printf("No Match MSG ID: 0x%x Data:", message.identifier);
     }
+
+    for (int i = 0; i < message.data_length_code; i++) {
+      Serial.printf(" %d = %02x", i, message.data[i]);
+    }
+    Serial.println("");
   } else {
-    Serial.printf("RECV ID: 0x%x\n", message.identifier);
+    msgFlag = true; // general broadcast message is valid
+    Serial.printf("RX MSG: 0x%x NO DATA\n", message.identifier);
   }
 
+  /*   
+  if (msgFlag == false) {
+    return; // message is not for us, exit function
+  }
+ */
+  if (!msgFlag) {
+    Serial.println("Message does not match our ID.");
+  }
 
   switch (message.identifier) {
     case SW_SET_OFF:            // set output switch off
       setSwitchState(message.data, 0);
+      txSwitchState((uint8_t *)myNodeID, 320, 2); 
+
       break;
     case SW_SET_ON:             // set output switch on
       setSwitchState(message.data, 1);
+      txSwitchState((uint8_t *)myNodeID, 320, 0); 
+
       break;
     case SW_MOM_PRESS:          // set output momentary
       setSwitchState(message.data, 2);
@@ -382,8 +459,9 @@ static void handle_rx_message(twai_message_t &message) {
       break;
 
     case ACK_INTRODUCTION:
-      Serial.println("Received introduction acknowledgement, starting over!\n");    
+      Serial.println("Received introduction acknowledgement, clearing flag");    
       FLAG_SEND_INTRODUCTION = false; // stop sending introduction messages
+      txSwitchState((uint8_t *)myNodeID, 320, 1); 
       break;
     
     default:
@@ -395,6 +473,8 @@ static void handle_rx_message(twai_message_t &message) {
       break;
   }
 
+  leds[0] = CRGB::Black;
+  FastLED.show();
 
 } // end of handle_rx_message
 
@@ -526,8 +606,8 @@ void TaskTWAI(void *pvParameters) {
 
     // Check if message is received
     if (alerts_triggered & TWAI_ALERT_RX_DATA) {
-      leds[0] = CRGB::Yellow;
-      FastLED.show();
+      // leds[0] = CRGB::Yellow;
+      // FastLED.show();
       // Serial.println("Testing line");
       // One or more messages received. Handle all.
       twai_message_t message;
@@ -608,6 +688,8 @@ void setup() {
   server.begin();
   Serial.println("HTTP server started");
 
+  Serial.print("[DEFAULT] ESP32 Board MAC Address: ");
+  readMacAddress();
 }
 
 void printWifi() {

@@ -158,8 +158,7 @@
 
 #define CONTACT_CLOSURE_PULL_DOWN 0x73D // contact closure pull down DLC 6
 #define CONTACT_CLOSURE_PULL_UP 0x73E // contact closure pull up DLC 6
-#define CONTACT_CLOSURE_RESERVED 0x73F // contact closure reserved DLC 6
-#define CONTACT_CLOSURE_RESERVED 0x740 // contact closure reserved DLC 6
+
 #define AMBIENT_LIGHT_SENSOR 0x741 // ambient light sensor DLC 6
 #define IMU_X_AXIS_SENSOR 0x742 // IMU X Axis sensor DLC 6
 #define IMU_Y_AXIS_SENSOR 0x743 // IMU Y Axis sensor DLC 6
