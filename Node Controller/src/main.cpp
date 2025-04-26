@@ -197,20 +197,106 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
   // vTaskDelay(100);
 }
 
-static void setSwitchMode(uint8_t *data) {
+static void setDisplayMode(uint8_t *data, uint8_t displayMode) {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+  static uint16_t displayID = (data[4] << 8) | data[5]; // switch ID
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  
+  switch (displayMode) {
+    case 0: // display off
+      Serial.printf("Unit %d Display %d OFF\n", unitID, displayID);
+      break;
+    case 1: // display on
+      Serial.printf("Unit %d Display %d ON\n", unitID, displayID);
+      break;
+    case 2: // clear display
+      Serial.printf("Unit %d Display %d CLEAR\n", unitID, displayID);
+      break;
+    case 3: // flash display
+      Serial.printf("Unit %d Display %d FLASH\n", unitID, displayID);
+      break;
+    default:
+      Serial.println("Invalid display mode");
+      break;
+  }
+}
+
+static void setSwMomDur(uint8_t *data) {
   static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint16_t swDuration = (data[6] << 8) | data[7]; // duration in msD 
 }
 
-static void setSwitchOn(uint8_t *data) {
-  // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID
+
+static void setSwBlinkDelay(uint8_t *data) {
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint16_t swBlinkDelay = (data[6] << 8) | data[7]; // delay in ms 
 }
 
-static void setSwitchOff(uint8_t *data) {
+static void setSwStrobePat(uint8_t *data) {
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint8_t swStrobePat = data[6]; // strobe pattern
+}
+
+
+static void setPWMDuty(uint8_t *data) {
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint16_t PWMDuty = (data[6] << 8) | data[7]; // switch ID 
+}
+
+static void setPWMFreq(uint8_t *data) {
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint16_t PWMFreq = (data[6] << 8) | data[7]; // switch ID 
+}
+static void setSwitchMode(uint8_t *data) {
+  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  static uint8_t switchMode = data[6]; // switch mode
+
+  switch (switchMode) {
+    case 0: // solid state (on/off)
+      break;
+    case 1: // one-shot momentary
+      break;
+    case 2: // blinking
+      break;
+    case 3: // strobing
+      break;
+    case 4: // pwm
+      break;
+    default:
+      Serial.println("Invalid switch mode");
+      break;
+  }
+
+}
+
+static void setSwitchState(uint8_t *data, uint8_t swState) {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
   static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID
+  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  
+  switch (swState) {
+    case 0: // switch off
+      Serial.printf("Unit %d Switch %d OFF\n", unitID, switchID);
+      break;
+    case 1: // switch on
+      Serial.printf("Unit %d Switch %d ON\n", unitID, switchID);
+      break;
+    case 2: // momentary press
+      Serial.printf("Unit %d Switch %d MOMENTARY PRESS\n", unitID, switchID);
+      break;
+    default:
+      Serial.println("Invalid switch state");
+      break;
+  }
 }
+
+
 
 static void sendIntroduction() {
   uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
@@ -251,37 +337,45 @@ static void handle_rx_message(twai_message_t &message) {
 
   switch (message.identifier) {
     case SW_SET_OFF:            // set output switch off
+      setSwitchState(message.data, 0);
       break;
     case SW_SET_ON:             // set output switch on
+      setSwitchState(message.data, 1);
       break;
-    case SW_MOM_PRESS:          // set output switch off
+    case SW_MOM_PRESS:          // set output momentary
+      setSwitchState(message.data, 2);
       break;
     case SW_SET_MODE:           // setup output switch modes
       setSwitchMode(message.data);
       break;
-    case SW_SET_PWM_DUTY:          // set output switch off
+    case SW_SET_PWM_DUTY:          // set output switch pwm duty
+      setPWMDuty(message.data);  
       break;
-    case SW_SET_PWM_FREQ:          // set output switch off
+    case SW_SET_PWM_FREQ:          // set output switch pwm frequency
+      setPWMFreq(message.data);
       break;
-    case SW_SET_MOM_DUR:          // set output switch off
+    case SW_SET_MOM_DUR:          // set output switch momentary duration
+      setSwMomDur(message.data);
       break;
-    case SW_SET_BLINK_DELAY:          // set output switch off
+    case SW_SET_BLINK_DELAY:          // set output switch blink delay
+      setSwBlinkDelay(message.data);
       break;
-    case SW_SET_STROBE_PAT:          // set output switch off
+    case SW_SET_STROBE_PAT:          // set output switch strobe pattern
+      setSwStrobePat(message.data);
       break;
-    case SET_DISPLAY_OFF:          // set output switch off
+    case SET_DISPLAY_OFF:          // set display off
+      setDisplayMode(message.data, 0); 
       break;
-    case SET_DISPLAY_ON:          // set output switch off
+    case SET_DISPLAY_ON:          // set display on
+      setDisplayMode(message.data, 1); 
       break;    
-    case SET_DISPLAY_CLEAR:          // set output switch off
+    case SET_DISPLAY_CLEAR:          // clear display
+      setDisplayMode(message.data, 2); 
       break;
-    case SET_DISPLAY_FLASH:          // set output switch off
+    case SET_DISPLAY_FLASH:          // flash display
+      setDisplayMode(message.data, 3); 
       break;
-
-
-
-
-      case REQ_INTERFACES:
+    case REQ_INTERFACES:
       Serial.println("Interface intro request, responding with 0x702");
       FLAG_SEND_INTRODUCTION = true; // set flag to send introduction message
       sendIntroduction(); // send our introduction message
