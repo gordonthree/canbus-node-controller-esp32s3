@@ -1,0 +1,1 @@
+Whenever possible, use block comments (/* */) instead of line comments (//) for C and C++ code. 
