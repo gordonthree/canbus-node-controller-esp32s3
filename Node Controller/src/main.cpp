@@ -14,22 +14,12 @@
 // Load Wi-Fi networking
 #include <WiFi.h>
 #include "esp_wifi.h"
-#include <AsyncTCP.h>
 #include <ESPmDNS.h>
-#include <ESPAsyncWebServer.h>
-
-static AsyncWebServer server(80);
-
-// #include <ESPAsync_WiFiManager.h>               //https://github.com/khoih-prog/ESPAsync_WiFiManager
+#include <NTPClient.h>
+#include <WiFiUdp.h>
 
 // Load FastLED
 #include <FastLED.h>
-
-// Webserver and file system
-#define SPIFFS LittleFS
-#include <LittleFS.h>
-#include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson?utm_source=platformio&utm_medium=piohome
-
 
 // my secrets
 #include "secrets.h"
@@ -38,7 +28,7 @@ static AsyncWebServer server(80);
 #include "canbus_msg.h"
 #include "canbus_flags.h"
 
-#define CAN_MY_IFACE_TYPE IFACE_TOUCHSCREEN_TYPE_A
+#define CAN_MY_IFACE_TYPE (0x701U) /* ARGB LED */
 #define CAN_SELF_MSG 1
 
 
@@ -46,19 +36,25 @@ static AsyncWebServer server(80);
 #include "driver/twai.h"
 
 // Pins used to connect to CAN bus transceiver:
-#define RX_PIN 39
-#define TX_PIN 38
+#define RX_PIN 22
+#define TX_PIN 21
 
 // Intervall:
 #define TRANSMIT_RATE_MS 1000
 #define POLLING_RATE_MS 1000
+
+WiFiUDP ntpUDP;
+
+// By default 'pool.ntp.org' is used with 60 seconds update interval and
+// no offset
+NTPClient timeClient(ntpUDP);
 
 static bool driver_installed = false;
 
 unsigned long previousMillis = 0;  // will store last time a message was send
 String texto;
 
-static const char *TAG = "can_control";
+static const char *TAG = "canesp32";
 
 // Calls = 0;
 
@@ -68,9 +64,9 @@ static const char *TAG = "can_control";
 
 // setup the ARGB led
 #define NUM_LEDS 1
-#define DATA_PIN 35
+#define DATA_PIN 27
 
-#define AP_SSID  "cancontrol"
+#define AP_SSID  "canesp32"
 
 // interrupt stuff
 hw_timer_t *Timer0_Cfg = NULL;
@@ -189,7 +185,7 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
   message.identifier = msgid;       // set message ID
   message.extd = 0;                 // 0 = standard frame, 1 = extended frame
   message.rtr = 0;                  // 0 = data frame, 1 = remote frame
-  message.self = CAN_SELF_MSG;      // 0 = normal transmission, 1 = self reception request 
+  message.self = 0;                 // 0 = normal transmission, 1 = self reception request 
   message.dlc_non_comp = 0;         // non-compliant DLC (0-8 bytes)  
   message.data_length_code = dlc;   // data length code (0-8 bytes)
   memcpy(message.data, data, dlc);  // copy data to message data field 
@@ -197,7 +193,7 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
   // Queue message for transmission
   if (twai_transmit(&message, pdMS_TO_TICKS(3000)) == ESP_OK) {
     // ESP_LOGI(TAG, "Message queued for transmission\n");
-    // printf("Message queued for transmission\n");
+    printf("Message queued for transmission\n");
   } else {
     leds[0] = CRGB::Red;
     FastLED.show();
@@ -300,26 +296,25 @@ static void setSwitchMode(uint8_t *data) {
 
 static void txSwitchState(uint8_t *txUnitID, uint16_t txSwitchID, uint8_t swState) {
   static uint8_t dataBytes[8];
-  static uint8_t txDLC = 6;
+  static uint8_t txDLC = 5;
   
   dataBytes[0] = txUnitID[0]; // set unit ID
   dataBytes[1] = txUnitID[1]; // set unit ID
   dataBytes[2] = txUnitID[2]; // set unit ID
   dataBytes[3] = txUnitID[3]; // set unit ID
-  dataBytes[4] = (txSwitchID >> 8) & 0xFF; // set switch ID
-  dataBytes[5] = txSwitchID & 0xFF; // set switch ID
+  dataBytes[4] = (txSwitchID); // set switch ID
   
 
   switch (swState) {
 
   case 0: // switch off
-    send_message(SW_SET_OFF, dataBytes, txDLC);
+    send_message(SW_SET_OFF_ID, dataBytes, txDLC);
     break;
   case 1: // switch on
-    send_message(SW_SET_ON, dataBytes, txDLC);
+    send_message(SW_SET_ON_ID, dataBytes, txDLC);
     break;
   case 2: // momentary press
-    send_message(SW_MOM_PRESS, dataBytes, txDLC);
+    send_message(SW_MOM_PRESS_ID, dataBytes, txDLC);
     break;
   default: // unsupported state
     Serial.println("Invalid switch state for transmission");
@@ -352,19 +347,22 @@ static void setSwitchState(uint8_t *data, uint8_t swState) {
 
 
 static void sendIntroduction() {
-  uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
+  uint8_t dataBytes[DISP_ARGB_LED_STRIP_DLC];
   dataBytes[0] = myNodeID[0]; // set node ID
   dataBytes[1] = myNodeID[1]; // set node ID
   dataBytes[2] = myNodeID[2]; // set node ID
   dataBytes[3] = myNodeID[3]; // set node ID
+  dataBytes[4] = (0x0F);      // display id
+  dataBytes[5] = (0xA0);      // feature mask 0
+  dataBytes[6] = (0xB0);      // feature mask 1
 
-  send_message(CAN_MY_IFACE_TYPE, dataBytes, sizeof(dataBytes));
+  send_message(DISP_ARGB_LED_STRIP_ID, dataBytes, DISP_ARGB_LED_STRIP_DLC);
 
 }
 
 static void sendIntroack() {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55}; // data bytes
-  send_message(ACK_INTRODUCTION, (uint8_t *)myNodeID, 4);
+  send_message(ACK_INTRO_ID, (uint8_t *)myNodeID, ACK_INTRO_DLC);
 }
 
 
@@ -387,11 +385,12 @@ static void handle_rx_message(twai_message_t &message) {
     } else {
       msgFlag = false; // message is not for us
     
-      Serial.printf("No Match MSG ID: 0x%x Data:", message.identifier);
+      // Serial.printf("No Match MSG ID: 0x%x Data:", message.identifier);
     }
 
+    Serial.printf("Overheard message id 0x%x, data as follows:\n", message.identifier);
     for (int i = 0; i < message.data_length_code; i++) {
-      Serial.printf(" %d = %02x", i, message.data[i]);
+      Serial.printf("%d = %02x ", i, message.data[i]);
     }
     Serial.println("");
   } else {
@@ -405,71 +404,50 @@ static void handle_rx_message(twai_message_t &message) {
   }
  */
   if (!msgFlag) {
-    Serial.println("Message does not match our ID.");
+    // Serial.println("Message does not match our ID.");
+    return;
   }
 
   switch (message.identifier) {
-    case SW_SET_OFF:            // set output switch off
+    case SW_SET_OFF_ID:            // set output switch off
       setSwitchState(message.data, 0);
       txSwitchState((uint8_t *)myNodeID, 320, 2); 
-
       break;
-    case SW_SET_ON:             // set output switch on
+    case SW_SET_ON_ID:             // set output switch on
       setSwitchState(message.data, 1);
       txSwitchState((uint8_t *)myNodeID, 320, 0); 
-
       break;
-    case SW_MOM_PRESS:          // set output momentary
-      setSwitchState(message.data, 2);
-      break;
-    case SW_SET_MODE:           // setup output switch modes
+    case SW_SET_MODE_ID:           // setup output switch modes
       setSwitchMode(message.data);
       break;
-    case SW_SET_PWM_DUTY:          // set output switch pwm duty
-      setPWMDuty(message.data);  
-      break;
-    case SW_SET_PWM_FREQ:          // set output switch pwm frequency
-      setPWMFreq(message.data);
-      break;
-    case SW_SET_MOM_DUR:          // set output switch momentary duration
-      setSwMomDur(message.data);
-      break;
-    case SW_SET_BLINK_DELAY:          // set output switch blink delay
+    case SW_SET_BLINK_DELAY_ID:          // set output switch blink delay
       setSwBlinkDelay(message.data);
       break;
-    case SW_SET_STROBE_PAT:          // set output switch strobe pattern
+    case SW_SET_STROBE_PAT_ID:          // set output switch strobe pattern
       setSwStrobePat(message.data);
       break;
-    case SET_DISPLAY_OFF:          // set display off
+    case SET_DISPLAY_OFF_ID:          // set display off
       setDisplayMode(message.data, 0); 
       break;
-    case SET_DISPLAY_ON:          // set display on
+    case SET_DISPLAY_ON_ID:          // set display on
       setDisplayMode(message.data, 1); 
       break;    
-    case SET_DISPLAY_CLEAR:          // clear display
-      setDisplayMode(message.data, 2); 
-      break;
-    case SET_DISPLAY_FLASH:          // flash display
-      setDisplayMode(message.data, 3); 
-      break;
-    case REQ_INTERFACES:
+    case REQ_NODE_INTRO_ID:
       Serial.println("Interface intro request, responding with 0x702");
       FLAG_SEND_INTRODUCTION = true; // set flag to send introduction message
       sendIntroduction(); // send our introduction message
       break;
-
-    case ACK_INTRODUCTION:
+    case ACK_INTRO_ID:
       Serial.println("Received introduction acknowledgement, clearing flag");    
       FLAG_SEND_INTRODUCTION = false; // stop sending introduction messages
       txSwitchState((uint8_t *)myNodeID, 320, 1); 
       break;
-    
+    case DATA_EPOCH_ID:
+      Serial.println("Received epoch from master, yay!");    
+      break;
     default:
-      if ((message.identifier & MASK_INTERFACE) == INTRO_INTERFACE) { // received an interface introduction
-        Serial.printf("Received introduction 0x%x\n", message.identifier);
-        sendIntroack();
-      }
-  
+      Serial.printf("Unknown message received 0x%x\n", message.identifier);
+      // sendIntroack();
       break;
   }
 
@@ -519,33 +497,56 @@ void TaskTWAI(void *pvParameters) {
   // give some time at boot the cpu setup other parameters
   vTaskDelay(1000 / portTICK_PERIOD_MS);
 
+
+  /** Range 1: 0x200 to 0x23F (Binary: 010 0000 0000 to 010 0011 1111)
+   * Range 2: 0x400 to 0x43F (Binary: 100 0000 0000 to 100 0011 1111)
+   */
+
+  /* * Acceptance Code: Defines the bits that must match.
+  * Code 1 (High 16 bits): 0x4000 (ID 0x200 shifted for SJA1000)
+  * Code 2 (Low 16 bits):  0x8000 (ID 0x400 shifted for SJA1000)
+  */
+  uint32_t acc_code = 0x40008000;
+
+  /* * Acceptance Mask: Defines "don't care" bits.
+  * For the SJA1000, a '1' in the mask means "don't care".
+  * We want to ignore the lower 6 bits of the ID.
+  */
+  uint32_t acc_mask = 0x07F807F8; 
+
+  twai_filter_config_t f_config = {
+      .acceptance_code = acc_code,
+      .acceptance_mask = acc_mask,
+      .single_filter = false /* false = Dual Filter Mode */
+  };
+
   // Initialize configuration structures using macro initializers
-  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)TX_PIN, (gpio_num_t)RX_PIN, TWAI_MODE_NO_ACK);  // TWAI_MODE_NO_ACK , TWAI_MODE_LISTEN_ONLY , TWAI_MODE_NORMAL
-  twai_timing_config_t t_config = TWAI_TIMING_CONFIG_250KBITS();  //Look in the api-reference for other speed sets.
-  twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)TX_PIN, (gpio_num_t)RX_PIN, TWAI_MODE_NORMAL);  // TWAI_MODE_NO_ACK , TWAI_MODE_LISTEN_ONLY , TWAI_MODE_NORMAL
+  twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();  //Look in the api-reference for other speed sets.
+  // twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
   // Install TWAI driver
   if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
-    Serial.println("Driver installed");
+    Serial.println("TWAI installed");
   } else {
-    Serial.println("Failed to install driver");
+    Serial.println("Failed to install TWAI");
     return;
   }
 
   // Start TWAI driver
   if (twai_start() == ESP_OK) {
-    Serial.println("Driver started");
+    Serial.println("TWAI started");
   } else {
-    Serial.println("Failed to start driver");
+    Serial.println("Failed to start TWAI");
     return;
   }
 
   // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue full states
   uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS | TWAI_ALERT_RX_QUEUE_FULL | TWAI_ALERT_TX_IDLE | TWAI_ALERT_TX_SUCCESS | TWAI_ALERT_TX_FAILED | TWAI_ALERT_BUS_ERROR;
   if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
-    Serial.println("CAN Alerts reconfigured");
+    Serial.println("TWAI alerts reconfigured");
   } else {
-    Serial.println("Failed to reconfigure alerts");
+    Serial.println("Failed to reconfigure alerts"); 
     return;
   }
 
@@ -612,7 +613,7 @@ void TaskTWAI(void *pvParameters) {
       // One or more messages received. Handle all.
       twai_message_t message;
       while (twai_receive(&message, 0) == ESP_OK) {
-        handle_rx_message(message);
+        handle_rx_message(message); 
       }
     }
     // Send message
@@ -621,7 +622,10 @@ void TaskTWAI(void *pvParameters) {
       leds[0] = CRGB::Blue;
       FastLED.show();
       previousMillis = currentMillis;
-      send_message(REQ_INTERFACES, NULL, 0); // send our introduction request
+      if (FLAG_SEND_INTRODUCTION) {
+        sendIntroduction(); /* Send introduction message */
+      }
+      // send_message(REQ_NODE_INTRO_ID, NULL, REQ_NODE_INTRO_DLC); // send our introduction request
     }
     vTaskDelay(10);
   }
@@ -673,23 +677,9 @@ void setup() {
   Serial.print("AP IPv4: ");
   Serial.println(WiFi.softAPIP());
 
-  // Make it possible to access webserver at http://myEsp32.local
-  if (!MDNS.begin(hostname)) {
-    Serial.println("Error setting up mDNS responder!");
-  } else {
-    Serial.printf("Access at http://%s.local\n", hostname);
-  }
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", "Hi! This is AsyncWebServer.");
-  });
-
-
-  server.begin();
-  Serial.println("HTTP server started");
-
   Serial.print("[DEFAULT] ESP32 Board MAC Address: ");
   readMacAddress();
+  timeClient.begin();
 }
 
 void printWifi() {
@@ -703,6 +693,8 @@ void printWifi() {
 
 
 void loop() {
+  timeClient.update();
+  vTaskDelay(1000);
 
   // NOP;
 }
