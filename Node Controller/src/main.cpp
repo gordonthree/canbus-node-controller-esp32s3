@@ -15,11 +15,15 @@
 #include <WiFi.h>
 #include "esp_wifi.h"
 #include <ESPmDNS.h>
-#include <NTPClient.h>
-#include <WiFiUdp.h>
 
 // Load FastLED
 #include <FastLED.h>
+
+// Timekeeping library
+// #include <TimeLib.h>
+
+#include <time.h>
+
 
 // my secrets
 #include "secrets.h"
@@ -39,17 +43,11 @@
 #define RX_PIN 22
 #define TX_PIN 21
 
-// Intervall:
+// Interval:
 #define TRANSMIT_RATE_MS 1000
 #define POLLING_RATE_MS 1000
 
-WiFiUDP ntpUDP;
-
-// By default 'pool.ntp.org' is used with 60 seconds update interval and
-// no offset
-NTPClient timeClient(ntpUDP);
-
-static bool driver_installed = false;
+bool driver_installed = false;
 
 unsigned long previousMillis = 0;  // will store last time a message was send
 String texto;
@@ -92,7 +90,7 @@ CRGB leds[NUM_LEDS];
 
 unsigned long ota_progress_millis = 0;
 
-static volatile bool wifi_connected = false;
+volatile bool wifi_connected = false;
 static volatile uint8_t myNodeID[] = {0, 0, 0, 0}; // node ID
 
 void IRAM_ATTR Timer0_ISR()
@@ -175,9 +173,15 @@ void WiFiEvent(WiFiEvent_t event){
     }
 }
 
+/**
+ * @brief Send a message to the CAN bus
+ * @param msgid The message ID of the frame to be sent
+ * @param data The data to be sent in the frame
+ * @param dlc The data length code of the frame, which is the number of bytes of data to be sent
+ */
 static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
-  static twai_message_t message;
-  static uint8_t dataBytes[] = {0, 0, 0, 0, 0, 0, 0, 0}; // initialize dataBytes array with 8 bytes of 0
+  twai_message_t message;
+  uint8_t dataBytes[] = {0, 0, 0, 0, 0, 0, 0, 0}; // initialize dataBytes array with 8 bytes of 0
 
   leds[0] = CRGB::Blue;
   FastLED.show();
@@ -218,8 +222,8 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
 
 static void setDisplayMode(uint8_t *data, uint8_t displayMode) {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
-  static uint16_t rxdisplayID = (data[4] << 8) | data[5]; // switch ID
-  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  uint16_t rxdisplayID = (data[4] << 8) | data[5]; // switch ID
+  uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
   
   switch (displayMode) {
     case 0: // display off
@@ -295,8 +299,8 @@ static void setSwitchMode(uint8_t *data) {
 }
 
 static void txSwitchState(uint8_t *txUnitID, uint16_t txSwitchID, uint8_t swState) {
-  static uint8_t dataBytes[8];
-  static uint8_t txDLC = 5;
+  uint8_t dataBytes[8];
+  static const uint8_t txDLC = 5;
   
   dataBytes[0] = txUnitID[0]; // set unit ID
   dataBytes[1] = txUnitID[1]; // set unit ID
@@ -346,6 +350,15 @@ static void setSwitchState(uint8_t *data, uint8_t swState) {
 
 
 
+/**
+ * @brief Send an introduction message to the gateway node with the node's ID and feature mask.
+ *
+ * This function is used to send the node's ID and feature mask to the gateway node.
+ * The feature mask is used to indicate which features the node supports.
+ *
+ * @param None
+ * @return None
+ */
 static void sendIntroduction() {
   uint8_t dataBytes[DISP_ARGB_LED_STRIP_DLC];
   dataBytes[0] = myNodeID[0]; // set node ID
@@ -356,7 +369,7 @@ static void sendIntroduction() {
   dataBytes[5] = (0xA0);      // feature mask 0
   dataBytes[6] = (0xB0);      // feature mask 1
 
-  send_message(DISP_ARGB_LED_STRIP_ID, dataBytes, DISP_ARGB_LED_STRIP_DLC);
+  send_message(DISP_ARGB_LED_STRIP_ID, (uint8_t *)dataBytes, DISP_ARGB_LED_STRIP_DLC); /**< send introduction message to the gateway node with the node's ID and feature mask */
 
 }
 
@@ -365,34 +378,88 @@ static void sendIntroack() {
   send_message(ACK_INTRO_ID, (uint8_t *)myNodeID, ACK_INTRO_DLC);
 }
 
+/**
+ * @brief Get the current epoch time from the system clock.
+ *
+ * This function reads the current time from the ESP32 system clock
+ * and returns it as a uint32_t representing the number of seconds
+ * since the epoch (January 1, 1970, 00:00:00 UTC).
+ *
+ * @return uint32_t The current epoch time in seconds.
+ */
+static uint32_t getEpochTime() {
+  /* Get time from the system clock and return it as a uint32_t */
+  struct timespec newTime;
+
+  clock_gettime(CLOCK_REALTIME, &newTime); /* Read time from ESP32 clock*/
+
+  return (uint32_t)newTime.tv_sec; 
+}
+
+/**
+ * @brief Send a uint32_t on the CAN bus
+ * @param bigNumber The uint32_t to be sent
+ * @param canMsgId The message ID to use for transmission (default: DATA_EPOCH_ID)
+ * @param dlc The data length code to use for transmission (default: DATA_EPOCH_DLC)
+ * 
+ * This function takes a uint32_t and sends it on the CAN bus
+ * with the given message ID and data length code.
+ */
+static void sendCanUint32(uint32_t bigNumber, uint32_t canMsgId = DATA_EPOCH_ID, uint8_t dlc = DATA_EPOCH_DLC) {
+  /* Take a uint32_t and put it on the bus */
+  uint8_t dataBytes[dlc];
+  
+  dataBytes[0] = myNodeID[0]; // set node ID
+  dataBytes[1] = myNodeID[1]; // set node ID
+  dataBytes[2] = myNodeID[2]; // set node ID
+  dataBytes[3] = myNodeID[3]; // set node ID
+  dataBytes[4] = (bigNumber >> 24) & 0xFF;
+  dataBytes[5] = (bigNumber >> 16) & 0xFF;
+  dataBytes[6] = (bigNumber >> 8) & 0xFF;
+  dataBytes[7] = (bigNumber & 0xFF);
+
+  send_message(canMsgId, (uint8_t *)dataBytes, dlc);
+
+}
+/**
+ * @brief Receive time in seconds and write it to the ESP32 clock
+ *
+ * This function is used to receive time in seconds from the gateway node and write it to the ESP32 clock.
+ * The time received is used to synchronize the ESP32 clock with the gateway node's clock.
+ *
+ * @param epochTime The time in seconds to be written to the ESP32 clock
+ * @return None
+ */
+static void setEpochTime(uint32_t epochTime) {
+/* Receive time in seconds and write it to the ESP32 clock */
+
+  struct timespec newTime;
+  newTime.tv_sec = (time_t)epochTime;
+  newTime.tv_nsec = 0;
+  clock_settime(CLOCK_REALTIME, &newTime);
+  
+}
 
 static void handle_rx_message(twai_message_t &message) {
-  // static twai_message_t altmessage;
-  static bool msgFlag = false;
+  // twai_message_t altmessage;
+  bool msgFlag = false;
   leds[0] = CRGB::Orange;
   FastLED.show();
 
 
   if (message.data_length_code > 0) { // message contains data, check if it is for us
-    static uint8_t rxUnitID[4] = {message.data[0], message.data[1], message.data[2], message.data[3]};
-    static int comp = memcmp((const void *)rxUnitID, (const void *)myNodeID, 4);
+    uint8_t rxUnitID[4] = {message.data[0], message.data[1], message.data[2], message.data[3]};
+    // memcmp((const uint8_t *)rxUnitID, (const uint8_t *)myNodeID, 4);
 
-    if (comp == 0) {
+    if (memcmp(message.data, (const uint8_t *)myNodeID, 4) == 0) {
       msgFlag = true; // message is for us
       leds[0] = CRGB::Green;
       FastLED.show();
-      Serial.printf("Node Match MSG ID: 0x%x Data:", message.identifier);
+      // Serial.printf("Node ID matched for message id 0x%x\n", message.identifier);
     } else {
       msgFlag = false; // message is not for us
-    
-      // Serial.printf("No Match MSG ID: 0x%x Data:", message.identifier);
+      Serial.printf("Overheard message 0x%03x for node %02x:%02x:%02x:%02x\n", message.identifier, rxUnitID[0], rxUnitID[1], rxUnitID[2], rxUnitID[3]);
     }
-
-    Serial.printf("Overheard message id 0x%x, data as follows:\n", message.identifier);
-    for (int i = 0; i < message.data_length_code; i++) {
-      Serial.printf("%d = %02x ", i, message.data[i]);
-    }
-    Serial.println("");
   } else {
     msgFlag = true; // general broadcast message is valid
     Serial.printf("RX MSG: 0x%x NO DATA\n", message.identifier);
@@ -404,7 +471,7 @@ static void handle_rx_message(twai_message_t &message) {
   }
  */
   if (!msgFlag) {
-    // Serial.println("Message does not match our ID.");
+    // Serial.println("Message does not match our ID, end of process.");
     return;
   }
 
@@ -443,7 +510,10 @@ static void handle_rx_message(twai_message_t &message) {
       txSwitchState((uint8_t *)myNodeID, 320, 1); 
       break;
     case DATA_EPOCH_ID:
-      Serial.println("Received epoch from master, yay!");    
+      uint32_t epochTime;
+      epochTime = ((message.data[4] << 24) | (message.data[5] << 16) | (message.data[6] << 8) | message.data[7]);
+      setEpochTime(epochTime);
+      Serial.println("Received epoch from master; updating clock");
       break;
     default:
       Serial.printf("Unknown message received 0x%x\n", message.identifier);
@@ -506,19 +576,47 @@ void TaskTWAI(void *pvParameters) {
   * Code 1 (High 16 bits): 0x4000 (ID 0x200 shifted for SJA1000)
   * Code 2 (Low 16 bits):  0x8000 (ID 0x400 shifted for SJA1000)
   */
-  uint32_t acc_code = 0x40008000;
+  // uint32_t acc_code = 0x40008000;
 
   /* * Acceptance Mask: Defines "don't care" bits.
   * For the SJA1000, a '1' in the mask means "don't care".
   * We want to ignore the lower 6 bits of the ID.
   */
-  uint32_t acc_mask = 0x07F807F8; 
+  // uint32_t acc_mask = 0x07F807F8; 
 
-  twai_filter_config_t f_config = {
-      .acceptance_code = acc_code,
-      .acceptance_mask = acc_mask,
-      .single_filter = false /* false = Dual Filter Mode */
-  };
+  // twai_filter_config_t f_config = {
+  //     .acceptance_code = acc_code,
+  //     .acceptance_mask = acc_mask,
+  //     .single_filter = false /* false = Dual Filter Mode */
+  // };
+
+  /** Hardware filter configuration for two ID ranges.
+  * Range 1: 0x200 - 0x23F
+  * Range 2: 0x400 - 0x43F
+  */
+  twai_filter_config_t f_config;
+  f_config.single_filter = false; /* Enable Dual Filter Mode */
+
+  /** Filter 1:
+  * Code: Base ID shifted left 5 bits.
+  * Mask: The bits we want to ignore (0x3F) shifted left 5, 
+  * OR'd with the lower 5 bits (0x1F) which are used for 
+  * flags like RTR that we also want to ignore here.
+  */
+  uint16_t code1 = (0x200 << 5);
+  uint16_t mask1 = (0x03F << 5) | 0x1F;
+
+  /** Filter 2:
+  * Same logic for the 0x400 range.
+  */
+  uint16_t code2 = (0x400 << 5);
+  uint16_t mask2 = (0x03F << 5) | 0x1F;
+
+  /** Combine into the 32-bit acceptance registers.
+  * Filter 1 occupies the high 16 bits, Filter 2 the low 16 bits.
+  */
+  f_config.acceptance_code = (code1 << 16) | code2;
+  f_config.acceptance_mask = (mask1 << 16) | mask2;
 
   // Initialize configuration structures using macro initializers
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)TX_PIN, (gpio_num_t)RX_PIN, TWAI_MODE_NORMAL);  // TWAI_MODE_NO_ACK , TWAI_MODE_LISTEN_ONLY , TWAI_MODE_NORMAL
@@ -552,7 +650,8 @@ void TaskTWAI(void *pvParameters) {
 
   // TWAI driver is now successfully installed and started
   driver_installed = true;
-
+  FLAG_SEND_INTRODUCTION = true; /* send an introduction message */
+  int loopCount = 0;
 
   for (;;) {
     if (!driver_installed) {
@@ -581,12 +680,12 @@ void TaskTWAI(void *pvParameters) {
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
-      Serial.println("Alert: The Transmission failed.");
-      Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
-      Serial.printf("TX error: %d\t", twaistatus.tx_error_counter);
-      Serial.printf("TX failed: %d\n", twaistatus.tx_failed_count);
       leds[0] = CRGB::Red;
       FastLED.show();
+      Serial.println("Alert: The Transmission failed.");
+      // Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
+      // Serial.printf("TX error: %d\t", twaistatus.tx_error_counter);
+      // Serial.printf("TX failed: %d\n", twaistatus.tx_failed_count);
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_SUCCESS) {
@@ -599,10 +698,10 @@ void TaskTWAI(void *pvParameters) {
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
       leds[0] = CRGB::Red;
       FastLED.show();
-      Serial.println("Alert: The RX queue is full causing a received frame to be lost.");
-      Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
-      Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
-      Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
+      Serial.println("Alert: The RX queue full.");
+      // Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
+      // Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
+      // Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
     }
 
     // Check if message is received
@@ -621,9 +720,15 @@ void TaskTWAI(void *pvParameters) {
     if (currentMillis - previousMillis >= TRANSMIT_RATE_MS) {
       leds[0] = CRGB::Blue;
       FastLED.show();
+      loopCount++;
       previousMillis = currentMillis;
       if (FLAG_SEND_INTRODUCTION) {
+        FLAG_SEND_INTRODUCTION = false; /* Reset flag */
         sendIntroduction(); /* Send introduction message */
+      }
+      if (loopCount >= 10) {
+        sendCanUint32(getEpochTime(), DATA_EPOCH_ID, DATA_EPOCH_DLC); /* Send epoch time as a heartbeat */
+        loopCount = 0;
       }
       // send_message(REQ_NODE_INTRO_ID, NULL, REQ_NODE_INTRO_DLC); // send our introduction request
     }
@@ -679,7 +784,6 @@ void setup() {
 
   Serial.print("[DEFAULT] ESP32 Board MAC Address: ");
   readMacAddress();
-  timeClient.begin();
 }
 
 void printWifi() {
@@ -693,8 +797,6 @@ void printWifi() {
 
 
 void loop() {
-  timeClient.update();
-  vTaskDelay(1000);
-
+ 
   // NOP;
 }
