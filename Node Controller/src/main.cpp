@@ -6,6 +6,8 @@
 // #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include <Arduino.h>
+#include <ArduinoOTA.h>
+
 #include <stdio.h>
 
 #include <freertos/FreeRTOS.h>
@@ -13,20 +15,23 @@
 
 // Load Wi-Fi networking
 #include <WiFi.h>
-#include "esp_wifi.h"
 #include <ESPmDNS.h>
+#include "esp_wifi.h"
 
 // Load FastLED
 #include <FastLED.h>
 
 // Timekeeping library
-// #include <TimeLib.h>
-
 #include <time.h>
-
 
 // my secrets
 #include "secrets.h"
+
+// OTA task control
+volatile bool ota_enabled = false;
+volatile bool ota_started = false;
+const char* ota_password = SECRET_PSK; // change this
+
 
 // my canbus stuff
 #include "canbus_msg.h"
@@ -97,6 +102,45 @@ void IRAM_ATTR Timer0_ISR()
 {
   isrFlag = true;
 }
+
+
+void TaskOTA(void *pvParameters) {
+  // Wait until WiFi is connected
+  while (!wifi_connected) {
+    vTaskDelay(200 / portTICK_PERIOD_MS);
+  }
+
+  // Configure ArduinoOTA
+  ArduinoOTA.setHostname(hostname);
+  ArduinoOTA.setPassword(ota_password);
+
+  ArduinoOTA.onStart([]() {
+    Serial.println("OTA Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nOTA End");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("OTA Progress: %u%%\n", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("OTA Error[%u]\n", error);
+  });
+
+  // Option A: Always enable OTA listener
+  ArduinoOTA.begin();
+  ota_started = true;
+  Serial.println("ArduinoOTA ready");
+
+  // Main loop: handle OTA requests
+  for (;;) {
+    ArduinoOTA.handle();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
+
+  vTaskDelete(NULL);
+}
+
 
 void readMacAddress(){
   uint8_t baseMac[6];
@@ -737,32 +781,27 @@ void TaskTWAI(void *pvParameters) {
 }
 
 void setup() {
-  delay(5000);
-
-  // Timer0_Cfg = timerBegin(0, 80, true);
-  // timerAttachInterrupt(Timer0_Cfg, &Timer0_ISR, true);
-  // timerAlarmWrite(Timer0_Cfg, 100000, true);
-  // timerAlarmEnable(Timer0_Cfg);
 
   xTaskCreate(
     TaskTWAI,     // Task function.
     "Task TWAI",  // name of task.
-    3172,         // Stack size of task
+    4096,         // Stack size of task
     NULL,         // parameter of the task
     1,            // priority of the task
     NULL          // Task handle to keep track of created task
   );              // pin task to core 0
   //tskNO_AFFINITY); // pin task to core is automatic depends the load of each core
 
-  // xTaskCreate(
-  //   TaskFLED,     // Task function.
-  //   "Task FLED",  // name of task.
-  //   2048,         // Stack size of task
-  //   NULL,         // parameter of the task
-  //   1,            // priority of the task
-  //   NULL    // Task handle to keep track of created task
-  // );              // pin task to core 0
-  //tskNO_AFFINITY); // pin task to core is automatic depends the load of each core
+  // Start OTA task (small stack is fine; OTA uses some memory)
+  xTaskCreate(
+    TaskOTA,
+    "Task OTA",
+    4096,   // stack size (increase if you see stack errors)
+    NULL,
+    1,
+    NULL
+  );
+
 
   FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
   leds[0] = CRGB::Black;
