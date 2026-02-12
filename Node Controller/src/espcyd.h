@@ -3,9 +3,11 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <WiFi.h>
-#include "time.h"
-
 #include <SPI.h>
+
+#include "time.h"
+#include "canbus_msg.h"
+
 
 /*  Install the "TFT_eSPI" library by Bodmer to interface with the TFT Display - https://github.com/Bodmer/TFT_eSPI
     *** IMPORTANT: User_Setup.h available on the internet will probably NOT work with the examples available at Random Nerd Tutorials ***
@@ -18,22 +20,34 @@
 #include <XPT2046_Touchscreen.h>
 
 // Touchscreen pins
-#define XPT2046_IRQ 36   // T_IRQ
-#define XPT2046_MOSI 32  // T_DIN
-#define XPT2046_MISO 39  // T_OUT
-#define XPT2046_CLK 25   // T_CLK
-#define XPT2046_CS 33    // T_CS
+#define XPT2046_IRQ 36   /* T_IRQ */
+#define XPT2046_MOSI 32  /* T_DIN */
+#define XPT2046_MISO 39  /* T_OUT */
+#define XPT2046_CLK 25   /* T_CLK */
+#define XPT2046_CS 33    /* T_CS */
 
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
 #define FONT_SIZE 2
 
-// Task Handles
-TaskHandle_t TaskTouchHandle;
-TaskHandle_t TaskDisplayHandle;
+/** Cheap yellow display pin assignments */
+#define LED_RED           4                
+#define LED_BLUE          17
+#define LED_GREEN         16
+#define CYD_BACKLIGHT     21 
+#define CYD_LDR           34
+#define CYD_SPEAKER       26
 
-// Mutex
-SemaphoreHandle_t spiSemaphore; // This is our "talking stick"
+/* Externalized variables for use in main logic if needed */
+extern TFT_eSPI tft;
+
+/* Set X and Y coordinates for center of display */
+const int centerX = SCREEN_WIDTH / 2;
+const int centerY = SCREEN_HEIGHT / 2;
+
+
+/* Modular initialization function */
+void initCYD();
 
 struct TouchData {
   int x;
@@ -44,22 +58,10 @@ struct TouchData {
 struct KeypadButton {
     int x, y, w, h;
     char label[10];
-    uint32_t canID;
+    uint16_t canID;
     uint16_t color;
 };
 
-KeypadButton buttons[4] = {
-    {10,  50,  145, 70, "LIGHTS", 0x101, TFT_BLUE},
-    {165, 50,  145, 70, "WIPERS", 0x102, TFT_DARKGREEN},
-    {10,  130, 145, 70, "HORN",   0x103, TFT_RED},
-    {165, 130, 145, 70, "AUX",    0x104, TFT_ORANGE}
-};
-
-
-// Create a handle for the mailbox
-QueueHandle_t touchQueue;
-QueueHandle_t timeQueue;
-
-
+extern KeypadButton buttons[4];
 
 #endif  // End ESPCYD_H_

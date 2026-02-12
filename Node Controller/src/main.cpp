@@ -1,10 +1,3 @@
-// #ifdef CORE_DEBUG_LEVEL
-// #undef CORE_DEBUG_LEVEL
-// #endif
-
-// #define CORE_DEBUG_LEVEL 3
-// #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
-
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 
@@ -13,30 +6,33 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// Load Wi-Fi networking
+/* Load Wi-Fi networking */
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include "esp_wifi.h"
 
 #ifndef ESP32CYD
-// Load FastLED
+/* Load FastLED */
 #include <FastLED.h>
 #endif
 
+#ifdef ESP32CYD
+#include "espcyd.h"
+#endif
 
-// Timekeeping library
+/* Timekeeping library */
 #include <time.h>
 
-// my secrets
+/* my secrets */
 #include "secrets.h"
 
-// OTA task control
+/* OTA task control */
 volatile bool ota_enabled = false;
 volatile bool ota_started = false;
 const char* ota_password = SECRET_PSK; // change this
 
 
-// my canbus stuff
+/* my canbus stuff */
 #include "canbus_msg.h"
 #include "canbus_flags.h"
 
@@ -44,10 +40,12 @@ const char* ota_password = SECRET_PSK; // change this
 #define CAN_SELF_MSG 1
 
 
-// esp32 native TWAI / CAN library
+/* esp32 native TWAI CAN library */
 #include "driver/twai.h"
 
-// Pins used to connect to CAN bus transceiver:
+/* Default CAN transceiver pins 
+ * Set these as a build_flag in platformio.ini
+*/
 #ifndef RX_PIN
 #define RX_PIN 22
 #endif
@@ -56,50 +54,40 @@ const char* ota_password = SECRET_PSK; // change this
 #define TX_PIN 21
 #endif
 
-#ifdef ESP32CYD
-#define LED_RED 4
-#define LED_BLUE 17
-#define LED_GREEN 16
-#endif
 
-// Interval:
+
+/* CAN bus stuff: */
 #define TRANSMIT_RATE_MS 1000
 #define POLLING_RATE_MS 1000
+volatile bool can_suspended = false;
+volatile bool can_driver_installed = false;
 
-bool driver_installed = false;
-
-unsigned long previousMillis = 0;  // will store last time a message was send
+unsigned long previousMillis = 0;  /* will store last time a message was sent */
 String texto;
 
 
 static const char *TAG = "canesp32";
 
-// Calls = 0;
+String wifiIP;
 
-// no-op routine
-#define NOP __asm__("nop");
-
-
-// setup the ARGB led
+#ifndef ESP32CYD
+// setup the ARGB led for Fastled
 #define NUM_LEDS 1
 #define DATA_PIN 27
+#endif
 
 #define AP_SSID  "canesp32"
 
-// interrupt stuff
+/* interrupt stuff */
 hw_timer_t *Timer0_Cfg = NULL;
  
 const char* ssid = SECRET_SSID;
 const char* password = SECRET_PSK;
 const char* hostname =AP_SSID;
 
-// CanFrame rxFrame;
-
 volatile int i=4;
 volatile bool isrFlag=false;
 volatile bool ipaddFlag=true;
-
-// volatile can_msg_t canMsgID;
 
 int period = 1000;
 int8_t ipCnt = 0;
@@ -113,7 +101,7 @@ CRGB leds[NUM_LEDS];
 unsigned long ota_progress_millis = 0;
 
 volatile bool wifi_connected = false;
-static volatile uint8_t myNodeID[] = {0, 0, 0, 0}; // node ID
+volatile uint8_t myNodeID[4]; // node ID
 
 void IRAM_ATTR Timer0_ISR()
 {
@@ -122,17 +110,23 @@ void IRAM_ATTR Timer0_ISR()
 
 
 void TaskOTA(void *pvParameters) {
-  // Wait until WiFi is connected
+  /* Wait until WiFi is connected */
   while (!wifi_connected) {
     vTaskDelay(200 / portTICK_PERIOD_MS);
   }
 
-  // Configure ArduinoOTA
+  /* Configure ArduinoOTA */
   ArduinoOTA.setHostname(hostname);
   ArduinoOTA.setPassword(ota_password);
 
   ArduinoOTA.onStart([]() {
-    Serial.println("OTA Start");
+    can_suspended = true; /* Stop the task logic */
+    
+    /* Stop and Uninstall the TWAI driver */
+    twai_stop();
+    twai_driver_uninstall();
+    
+    Serial.println("OTA Started: CAN Bus Suspended");
   });
   ArduinoOTA.onEnd([]() {
     Serial.println("\nOTA End");
@@ -142,14 +136,15 @@ void TaskOTA(void *pvParameters) {
   });
   ArduinoOTA.onError([](ota_error_t error) {
     Serial.printf("OTA Error[%u]\n", error);
+    ESP.restart(); /* Cleanest way to recover CAN hardware after a failed OTA */
   });
 
-  // Option A: Always enable OTA listener
+  /* Option A: Always enable OTA listener */
   ArduinoOTA.begin();
   ota_started = true;
   Serial.println("ArduinoOTA ready");
 
-  // Main loop: handle OTA requests
+  /* Main loop: handle OTA requests */
   for (;;) {
     ArduinoOTA.handle();
     vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -159,20 +154,13 @@ void TaskOTA(void *pvParameters) {
 }
 
 
-void readMacAddress(){
+void readMacAddress() {
   uint8_t baseMac[6];
-  esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, baseMac);
-  if (ret == ESP_OK) {
-    /* Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
-                  baseMac[0], baseMac[1], baseMac[2],
-                  baseMac[3], baseMac[4], baseMac[5]); */
-    myNodeID[0] = baseMac[2];
-    myNodeID[1] = baseMac[3];
-    myNodeID[2] = baseMac[4];
-    myNodeID[3] = baseMac[5];
-    // Serial.printf("Node ID: %02x:%02x:%02x:%02x\n", myNodeID[0], myNodeID[1], myNodeID[2], myNodeID[3]);
+  if (esp_wifi_get_mac(WIFI_IF_STA, baseMac) == ESP_OK) {
+    /* Copy 4 bytes starting from index 2 of baseMac into myNodeID */
+    memcpy((void*)myNodeID, &baseMac[2], 4);
   } else {
-    Serial.println("Failed to set NODE ID");
+    Serial.println("Failed to set my node ID");
   }
 }
 
@@ -182,9 +170,10 @@ void wifiOnConnect(){
   Serial.println(WiFi.SSID());
   Serial.print("STA IPv4: ");
   Serial.println(WiFi.localIP());
+  wifiIP = WiFi.localIP().toString();
 }
 
-//when wifi disconnects
+/* when wifi disconnects */
 void wifiOnDisconnect(){
   Serial.println("STA disconnected, reconnecting...");
   delay(1000);
@@ -195,24 +184,24 @@ void WiFiEvent(WiFiEvent_t event){
     switch(event) {
 
         case SYSTEM_EVENT_AP_START:
-            //can set ap hostname here
+            /* set ap hostname here */
             WiFi.softAPsetHostname(AP_SSID);
-            //enable ap ipv6 here
+            /* enable ap ipv6 here */
             WiFi.softAPenableIpV6();
             break;
 
         case SYSTEM_EVENT_STA_START:
-            //set sta hostname here
+            /* set sta hostname here */
             WiFi.setHostname(AP_SSID);
             break;
 
         case SYSTEM_EVENT_STA_CONNECTED:
-            //enable sta ipv6 here
+            /* enable sta ipv6 here */
             WiFi.enableIpV6();
             break;
 
         case SYSTEM_EVENT_AP_STA_GOT_IP6:
-            //both interfaces get the same event
+            /* both interfaces get the same event */
             Serial.print("STA IPv6: ");
             Serial.println(WiFi.localIPv6());
             Serial.print("AP IPv6: ");
@@ -240,34 +229,43 @@ void WiFiEvent(WiFiEvent_t event){
  * @param data The data to be sent in the frame
  * @param dlc The data length code of the frame, which is the number of bytes of data to be sent
  */
-static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
+void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
   twai_message_t message;
-  uint8_t dataBytes[] = {0, 0, 0, 0, 0, 0, 0, 0}; // initialize dataBytes array with 8 bytes of 0
-  // Format message
-  message.identifier = msgid;       // set message ID
-  message.extd = 0;                 // 0 = standard frame, 1 = extended frame
-  message.rtr = 0;                  // 0 = data frame, 1 = remote frame
-  message.self = 0;                 // 0 = normal transmission, 1 = self reception request 
-  message.dlc_non_comp = 0;         // non-compliant DLC (0-8 bytes)  
-  message.data_length_code = dlc;   // data length code (0-8 bytes)
-  memcpy(message.data, data, dlc);  // copy data to message data field 
+  static int failCount = 0; /* tx fail counter */
+
+  /* Format message */
+  message.identifier = msgid;       /**< set message ID */
+  message.extd = 0;                 /**< 0 = standard frame, 1 = extended frame */
+  message.rtr = 0;                  /**< 0 = data frame, 1 = remote frame */
+  message.self = 0;                 /**< 0 = normal transmission, 1 = self reception request */
+  message.dlc_non_comp = 0;         /**< non-compliant DLC (0-8 bytes) */
+  message.data_length_code = dlc;   /**< data length code (0-8 bytes) */
+
+  if (dlc > 8) dlc = 8; /* Safety check */
+  memcpy(message.data, data, dlc);  /**< copy data to message data field */
   
-  // Queue message for transmission
-  if (twai_transmit(&message, pdMS_TO_TICKS(3000)) == ESP_OK) {
-    // ESP_LOGI(TAG, "Message queued for transmission\n");
-    printf("Message queued for transmission\n");
+/* Attempt transmission with a 10ms timeout */
+  if (twai_transmit(&message, pdMS_TO_TICKS(10)) == ESP_OK) {
+    failCount = 0; /* Reset counter on successful queueing */
+    Serial.printf("ID: 0x%03X queued\n", msgid);
   } else {
-    // ESP_LOGE(TAG, "Failed to queue message for transmission, initiating recovery");
-    printf("Failed to queue message for transmission, resetting controller\n");
-    twai_initiate_recovery();
-    twai_stop();
-    printf("twai Stoped\n");
-    vTaskDelay(500);
-    twai_start();
-    printf("twai Started\n");
-    // ESP_LOGI(TAG, "twai restarted\n");
-    // wifiOnConnect();
-    vTaskDelay(500);
+    failCount++;
+    Serial.printf("Tx Fail (%d/3)\n", failCount);
+
+    if (failCount >= 3) {
+      Serial.println("Persistent failure: Initiating TWAI Recovery...");
+      
+      /* Physical Bus Recovery Sequence */
+      twai_stop();
+      twai_initiate_recovery(); 
+      
+      vTaskDelay(pdMS_TO_TICKS(100)); /* Short delay for hardware state change */
+      
+      twai_start();
+      Serial.println("TWAI Restarted");
+      
+      failCount = 0; /* Reset after recovery attempt */
+    }
   }
   // vTaskDelay(100);
 }
@@ -297,40 +295,40 @@ static void setDisplayMode(uint8_t *data, uint8_t displayMode) {
 }
 
 static void setSwMomDur(uint8_t *data) {
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
-  static uint16_t swDuration = (data[6] << 8) | data[7]; // duration in msD 
+  uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  uint16_t swDuration = (data[6] << 8) | data[7]; // duration in msD 
 }
 
 
 static void setSwBlinkDelay(uint8_t *data) {
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
-  static uint16_t swBlinkDelay = (data[6] << 8) | data[7]; // delay in ms 
+  uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  uint16_t swBlinkDelay = (data[6] << 8) | data[7]; // delay in ms 
 }
 
 static void setSwStrobePat(uint8_t *data) {
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
-  static uint8_t swStrobePat = data[6]; // strobe pattern
+  uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  uint8_t swStrobePat = data[6]; // strobe pattern
 }
 
 
 static void setPWMDuty(uint8_t *data) {
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
-  static uint16_t PWMDuty = (data[6] << 8) | data[7]; // switch ID 
+  uint32_t rxunitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  uint16_t PWMDuty = (data[6] << 8) | data[7]; // switch ID 
 }
 
 static void setPWMFreq(uint8_t *data) {
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
-  static uint16_t PWMFreq = (data[6] << 8) | data[7]; // switch ID 
+  uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  uint16_t PWMFreq = (data[6] << 8) | data[7]; // switch ID 
 }
 static void setSwitchMode(uint8_t *data) {
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
-  static uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
-  static uint8_t switchMode = data[6]; // switch mode
+  uint16_t switchID = (data[4] << 8) | data[5]; // switch ID 
+  uint32_t unitID = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]; // unit ID
+  uint8_t switchMode = data[6]; // switch mode
 
   switch (switchMode) {
     case 0: // solid state (on/off)
@@ -381,8 +379,8 @@ static void txSwitchState(uint8_t *txUnitID, uint16_t txSwitchID, uint8_t swStat
 
 static void setSwitchState(uint8_t *data, uint8_t swState) {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
-  static uint16_t switchID = (data[4] << 8) | data[5]; // switch ID
-  static uint8_t unitID[] = {data[0], data[1], data[2], data[3]}; // unit ID
+  uint16_t switchID = (data[4] << 8) | data[5]; // switch ID
+  uint8_t unitID[] = {data[0], data[1], data[2], data[3]}; // unit ID
   
   switch (swState) {
     case 0: // switch off
@@ -529,11 +527,11 @@ static void handle_rx_message(twai_message_t &message) {
   switch (message.identifier) {
     case SW_SET_OFF_ID:            // set output switch off
       setSwitchState(message.data, 0);
-      txSwitchState((uint8_t *)myNodeID, 320, 2); 
+      txSwitchState((uint8_t *)myNodeID, 32, 2); 
       break;
     case SW_SET_ON_ID:             // set output switch on
       setSwitchState(message.data, 1);
-      txSwitchState((uint8_t *)myNodeID, 320, 0); 
+      txSwitchState((uint8_t *)myNodeID, 32, 0); 
       break;
     case SW_SET_MODE_ID:           // setup output switch modes
       setSwitchMode(message.data);
@@ -558,14 +556,19 @@ static void handle_rx_message(twai_message_t &message) {
     case ACK_INTRO_ID:
       Serial.println("Received introduction acknowledgement, clearing flag");    
       FLAG_SEND_INTRODUCTION = false; // stop sending introduction messages
-      txSwitchState((uint8_t *)myNodeID, 320, 1); 
+      txSwitchState((uint8_t *)myNodeID, 32, 1); 
       break;
     case DATA_EPOCH_ID:
+      // Use explicit casting to prevent shift overflow
       uint32_t epochTime;
-      epochTime = ((message.data[4] << 24) | (message.data[5] << 16) | (message.data[6] << 8) | message.data[7]);
-      setEpochTime(epochTime);
+      epochTime = ((uint32_t)message.data[4] << 24) | 
+                  ((uint32_t)message.data[5] << 16) | 
+                  ((uint32_t)message.data[6] << 8)  | 
+                   (uint32_t)message.data[7];
+      setEpochTime((uint32_t)epochTime);
       Serial.println("Received epoch from master; updating clock");
       break;
+
     default:
       Serial.printf("Unknown message received 0x%x\n", message.identifier);
       // sendIntroack();
@@ -650,14 +653,14 @@ void TaskTWAI(void *pvParameters) {
   * OR'd with the lower 5 bits (0x1F) which are used for 
   * flags like RTR that we also want to ignore here.
   */
-  uint16_t code1 = (0x200 << 5);
-  uint16_t mask1 = (0x03F << 5) | 0x1F;
+  uint32_t code1 = (0x200 << 5);
+  uint32_t mask1 = (0x03F << 5) | 0x1F;
 
   /** Filter 2:
   * Same logic for the 0x400 range.
   */
-  uint16_t code2 = (0x400 << 5);
-  uint16_t mask2 = (0x03F << 5) | 0x1F;
+  uint32_t code2 = (0x400 << 5);
+  uint32_t mask2 = (0x03F << 5) | 0x1F;
 
   /** Combine into the 32-bit acceptance registers.
   * Filter 1 occupies the high 16 bits, Filter 2 the low 16 bits.
@@ -675,7 +678,7 @@ void TaskTWAI(void *pvParameters) {
     Serial.println("TWAI installed");
   } else {
     Serial.println("Failed to install TWAI");
-    return;
+    vTaskDelete(NULL); /* <--- Safety fix */
   }
 
   // Start TWAI driver
@@ -683,7 +686,7 @@ void TaskTWAI(void *pvParameters) {
     Serial.println("TWAI started");
   } else {
     Serial.println("Failed to start TWAI");
-    return;
+    vTaskDelete(NULL); /* <--- Safety fix */
   }
 
   // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue full states
@@ -692,67 +695,71 @@ void TaskTWAI(void *pvParameters) {
     Serial.println("TWAI alerts reconfigured");
   } else {
     Serial.println("Failed to reconfigure alerts"); 
-    return;
+    vTaskDelete(NULL); /* <--- Safety fix */
   }
 
   // TWAI driver is now successfully installed and started
-  driver_installed = true;
+  can_driver_installed = true;
   FLAG_SEND_INTRODUCTION = true; /* send an introduction message */
   int loopCount = 0;
 
   for (;;) {
-    if (!driver_installed) {
-      // Driver not installed
-      vTaskDelay(1000);
-      return;
+    if (!can_driver_installed || can_suspended) {
+      /* Driver not installed or bus suspended */
+      vTaskDelay(pdMS_TO_TICKS(100)); /* Idle the task */
+      continue; /* Skip the rest of the loop */
     }
     // Check if alert happened
     uint32_t alerts_triggered;
-    twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(POLLING_RATE_MS));
+    twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(10));
     twai_status_info_t twaistatus;
     twai_get_status_info(&twaistatus);
 
-    // Handle alerts
+    /* Timestamps for throttling Serial output (static to persist across loops) */
+    static uint32_t lastErrPassLog = 0;
+    static uint32_t lastBusErrLog = 0;
+    static uint32_t lastTxFailLog = 0;
+    static uint32_t lastRxFullLog = 0;
+    const uint32_t LOG_INTERVAL = 2000; /* Log once every 2 seconds max */
+
+    /* Handle alerts */
     if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
-      Serial.println("Alert: TWAI controller has become error passive.");
+      if (millis() - lastErrPassLog > LOG_INTERVAL) {
+        Serial.println("Alert: TWAI controller has become error passive.");
+        lastErrPassLog = millis();
+      }
     }
 
     if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
-      Serial.println("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus.");
-      Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
+      if (millis() - lastBusErrLog > LOG_INTERVAL) {
+        Serial.printf("Alert: Bus Error. Count: %d\n", twaistatus.bus_error_count);
+        lastBusErrLog = millis();
+      }
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
-      Serial.println("Alert: The Transmission failed.");
-      // Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
-      // Serial.printf("TX error: %d\t", twaistatus.tx_error_counter);
-      // Serial.printf("TX failed: %d\n", twaistatus.tx_failed_count);
-    }
-
-    if (alerts_triggered & TWAI_ALERT_TX_SUCCESS) {
-      // Serial.println("Alert: The Transmission was successful.");
-      // Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
+      if (millis() - lastTxFailLog > LOG_INTERVAL) {
+        Serial.println("Alert: Transmission failed.");
+        lastTxFailLog = millis();
+      }
     }
 
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
-      Serial.println("Alert: The RX queue full.");
-      // Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
-      // Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
-      // Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
+      if (millis() - lastRxFullLog > LOG_INTERVAL) {
+        Serial.println("Alert: RX queue full.");
+        lastRxFullLog = millis();
+      }
     }
 
-    // Check if message is received
+    /* Check if message is received */
     if (alerts_triggered & TWAI_ALERT_RX_DATA) {
-      // leds[0] = CRGB::Yellow;
-      // FastLED.show();
-      // Serial.println("Testing line");
-      // One or more messages received. Handle all.
+      /* One or more messages received. Handle all. */
       twai_message_t message;
       while (twai_receive(&message, 0) == ESP_OK) {
         handle_rx_message(message); 
       }
     }
-    // Send message
+    /* Send message */
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= TRANSMIT_RATE_MS) {
       loopCount++;
@@ -773,39 +780,23 @@ void TaskTWAI(void *pvParameters) {
 
 void setup() {
 
-  xTaskCreate(
-    TaskTWAI,     // Task function.
-    "Task TWAI",  // name of task.
-    4096,         // Stack size of task
-    NULL,         // parameter of the task
-    1,            // priority of the task
-    NULL          // Task handle to keep track of created task
-  );              // pin task to core 0
-  //tskNO_AFFINITY); // pin task to core is automatic depends the load of each core
+  pinMode(LED_BLUE, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
 
-  // Start OTA task (small stack is fine; OTA uses some memory)
-  xTaskCreate(
-    TaskOTA,
-    "Task OTA",
-    4096,   // stack size (increase if you see stack errors)
-    NULL,
-    1,
-    NULL
-  );
-
-#ifndef ESP32CYD
-  FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
-  leds[0] = CRGB::Black;
-  FastLED.show();
-#endif
+  digitalWrite(LED_BLUE, HIGH); /* reverse logic, high equals off */
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_GREEN, HIGH);
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
+  delay(2500); /* Provide time for the board's usb interface to change from flash to uart mode */
 
   WiFi.onEvent(WiFiEvent);
   WiFi.mode(WIFI_MODE_APSTA);
   WiFi.softAP(AP_SSID);
   WiFi.begin(ssid, password);
+  delay(1000);
 
   Serial.println("AP Started");
   Serial.print("AP SSID: ");
@@ -815,6 +806,39 @@ void setup() {
 
   Serial.print("[DEFAULT] ESP32 Board MAC Address: ");
   readMacAddress();
+
+  #ifdef ESP32CYD
+  initCYD(); /* Initialize CYD interface */
+  #endif
+
+  /* Start the CAN task */
+  xTaskCreate(
+    TaskTWAI,     /* Task function */
+    "Task TWAI",  /*  name of task */
+    4096,         /* Stack size of task */
+    NULL,         /* parameter of the task */
+    2,            /* priority of the task */
+    NULL          /* Task handle to keep track of created task */
+  );              
+
+  /* Start OTA task  */
+  xTaskCreate(
+    TaskOTA,
+    "Task OTA",
+    4096,   
+    NULL,
+    3,
+    NULL
+  );
+
+#ifndef ESP32CYD
+  FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
+  leds[0] = CRGB::Black;
+  FastLED.show();
+#endif
+
+
+
 }
 
 void printWifi() {
