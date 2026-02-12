@@ -11,7 +11,7 @@
 #include <ESPmDNS.h>
 #include "esp_wifi.h"
 
-#ifndef ESP32CYD
+#ifdef ARGB_LED
 /* Load FastLED */
 #include <FastLED.h>
 #endif
@@ -64,17 +64,9 @@ volatile bool can_driver_installed = false;
 
 unsigned long previousMillis = 0;  /* will store last time a message was sent */
 String texto;
-
-
-static const char *TAG = "canesp32";
-
 String wifiIP;
 
-#ifndef ESP32CYD
-// setup the ARGB led for Fastled
-#define NUM_LEDS 1
-#define DATA_PIN 27
-#endif
+static const char *TAG = "canesp32";
 
 #define AP_SSID  "canesp32"
 
@@ -94,8 +86,17 @@ int8_t ipCnt = 0;
 
 unsigned long time_now = 0;
 
-#ifndef ESP32CYD
-CRGB leds[NUM_LEDS];
+#ifdef ARGB_LED
+// setup the ARGB led for Fastled
+#ifndef ARGB_NUM_LEDS
+#define ARGB_NUM_LEDS 1
+#endif
+
+#ifndef ARGB_DATA_PIN
+#define ARGB_DATA_PIN 27
+#endif
+
+CRGB leds[ARGB_NUM_LEDS];
 #endif
 
 unsigned long ota_progress_millis = 0;
@@ -780,6 +781,7 @@ void TaskTWAI(void *pvParameters) {
 
 void setup() {
 
+#ifdef ESP32CYD
   pinMode(LED_BLUE, OUTPUT);
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
@@ -787,6 +789,7 @@ void setup() {
   digitalWrite(LED_BLUE, HIGH); /* reverse logic, high equals off */
   digitalWrite(LED_RED, HIGH);
   digitalWrite(LED_GREEN, HIGH);
+#endif
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
@@ -835,8 +838,8 @@ void setup() {
     NULL
   );
 
-#ifndef ESP32CYD
-  FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
+#ifdef ARGB_LED
+  FastLED.addLeds<SK6812, ARGB_DATA_PIN, GRB>(leds, ARGB_NUM_LEDS);
   leds[0] = CRGB::Black;
   FastLED.show();
 #endif
