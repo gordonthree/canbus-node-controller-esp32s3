@@ -126,15 +126,13 @@ void TaskOTA(void *pvParameters) {
     twai_stop();
     twai_driver_uninstall();
     
-    Serial.println("OTA Started: CAN Bus Suspended");
+    Serial.println("OTA Started: CAN Bus Suspended\nProgress: ");
   });
   ArduinoOTA.onEnd([]() {
     Serial.println("\nOTA End");
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.print("OTA Progress: ");
-    Serial.printf("%u%% ", (progress / (total / 100)));
-
+    Serial.print(".");
   });
   ArduinoOTA.onError([](ota_error_t error) {
     Serial.printf("OTA Error[%u]\n", error);
@@ -509,7 +507,7 @@ static void handle_rx_message(twai_message_t &message) {
       // Serial.printf("Node ID matched for message id 0x%x\n", message.identifier);
     } else {
       msgFlag = false; // message is not for us
-      Serial.printf("Overheard message 0x%03x for node %02x:%02x:%02x:%02x\n", message.identifier, rxUnitID[0], rxUnitID[1], rxUnitID[2], rxUnitID[3]);
+      // Serial.printf("Overheard message 0x%03x for node %02x:%02x:%02x:%02x\n", message.identifier, rxUnitID[0], rxUnitID[1], rxUnitID[2], rxUnitID[3]);
     }
   } else {
     msgFlag = true; // general broadcast message is valid
