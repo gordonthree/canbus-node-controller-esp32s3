@@ -1,0 +1,3 @@
+[submodule "Node Controller/lib/can-canbus-data"]
+	path = Node Controller/lib/can-canbus-data
+	url = https://github.com/gordonthree/can-canbus-data.git
