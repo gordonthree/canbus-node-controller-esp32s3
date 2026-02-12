@@ -15,11 +15,11 @@
     FULL INSTRUCTIONS AVAILABLE ON HOW CONFIGURE THE LIBRARY: https://RandomNerdTutorials.com/cyd/ or https://RandomNerdTutorials.com/esp32-tft/   */
 #include <TFT_eSPI.h>
 
-// Install the "XPT2046_Touchscreen" library by Paul Stoffregen to use the Touchscreen - https://github.com/PaulStoffregen/XPT2046_Touchscreen
-// Note: this library doesn't require further configuration
+/** Install the "XPT2046_Touchscreen" library by Paul Stoffregen to use the Touchscreen - https://github.com/PaulStoffregen/XPT2046_Touchscreen
+*   Note: this library doesn't require further configuration */
 #include <XPT2046_Touchscreen.h>
 
-// Touchscreen pins
+/** Touchscreen pins, this is setup in build_flags in platformio.ini */
 #define XPT2046_IRQ 36   /* T_IRQ */
 #define XPT2046_MOSI 32  /* T_DIN */
 #define XPT2046_MISO 39  /* T_OUT */
@@ -40,6 +40,8 @@
 
 /* Externalized variables for use in main logic if needed */
 extern TFT_eSPI tft;
+extern volatile bool can_driver_installed;
+extern volatile bool can_suspended;
 
 /* Set X and Y coordinates for center of display */
 const int centerX = SCREEN_WIDTH / 2;
@@ -64,4 +66,4 @@ struct KeypadButton {
 
 extern KeypadButton buttons[4];
 
-#endif  // End ESPCYD_H_
+#endif  /* End ESPCYD_H_ */

@@ -132,7 +132,9 @@ void TaskOTA(void *pvParameters) {
     Serial.println("\nOTA End");
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("OTA Progress: %u%%\n", (progress / (total / 100)));
+    Serial.print("OTA Progress: ");
+    Serial.printf("%u%% ", (progress / (total / 100)));
+
   });
   ArduinoOTA.onError([](ota_error_t error) {
     Serial.printf("OTA Error[%u]\n", error);
@@ -803,6 +805,10 @@ void setup() {
   Serial.println(AP_SSID);
   Serial.print("AP IPv4: ");
   Serial.println(WiFi.softAPIP());
+  
+  /* set up some clock parameters */
+  setenv("TZ", "EST5EDT,M3.2.0,M11.1.0", 1);
+  tzset();
 
   Serial.print("[DEFAULT] ESP32 Board MAC Address: ");
   readMacAddress();
