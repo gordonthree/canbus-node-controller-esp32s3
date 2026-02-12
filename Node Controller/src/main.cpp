@@ -18,8 +18,11 @@
 #include <ESPmDNS.h>
 #include "esp_wifi.h"
 
+#ifndef ESP32CYD
 // Load FastLED
 #include <FastLED.h>
+#endif
+
 
 // Timekeeping library
 #include <time.h>
@@ -45,8 +48,19 @@ const char* ota_password = SECRET_PSK; // change this
 #include "driver/twai.h"
 
 // Pins used to connect to CAN bus transceiver:
+#ifndef RX_PIN
 #define RX_PIN 22
+#endif
+
+#ifndef TX_PIN
 #define TX_PIN 21
+#endif
+
+#ifdef ESP32CYD
+#define LED_RED 4
+#define LED_BLUE 17
+#define LED_GREEN 16
+#endif
 
 // Interval:
 #define TRANSMIT_RATE_MS 1000
@@ -56,6 +70,7 @@ bool driver_installed = false;
 
 unsigned long previousMillis = 0;  // will store last time a message was send
 String texto;
+
 
 static const char *TAG = "canesp32";
 
@@ -91,7 +106,9 @@ int8_t ipCnt = 0;
 
 unsigned long time_now = 0;
 
+#ifndef ESP32CYD
 CRGB leds[NUM_LEDS];
+#endif
 
 unsigned long ota_progress_millis = 0;
 
@@ -226,9 +243,6 @@ void WiFiEvent(WiFiEvent_t event){
 static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
   twai_message_t message;
   uint8_t dataBytes[] = {0, 0, 0, 0, 0, 0, 0, 0}; // initialize dataBytes array with 8 bytes of 0
-
-  leds[0] = CRGB::Blue;
-  FastLED.show();
   // Format message
   message.identifier = msgid;       // set message ID
   message.extd = 0;                 // 0 = standard frame, 1 = extended frame
@@ -243,8 +257,6 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
     // ESP_LOGI(TAG, "Message queued for transmission\n");
     printf("Message queued for transmission\n");
   } else {
-    leds[0] = CRGB::Red;
-    FastLED.show();
     // ESP_LOGE(TAG, "Failed to queue message for transmission, initiating recovery");
     printf("Failed to queue message for transmission, resetting controller\n");
     twai_initiate_recovery();
@@ -256,11 +268,7 @@ static void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
     // ESP_LOGI(TAG, "twai restarted\n");
     // wifiOnConnect();
     vTaskDelay(500);
-    leds[0] = CRGB::Black;
-    FastLED.show();
   }
-  leds[0] = CRGB::Black;
-  FastLED.show();
   // vTaskDelay(100);
 }
 
@@ -392,7 +400,10 @@ static void setSwitchState(uint8_t *data, uint8_t swState) {
   }
 }
 
-
+#ifndef NODE_ID
+#define NODE_ID BOX_MULTI_IO_ID // default node ID
+#define NODE_DLC BOX_MULTI_IO_DLC
+#endif
 
 /**
  * @brief Send an introduction message to the gateway node with the node's ID and feature mask.
@@ -404,7 +415,7 @@ static void setSwitchState(uint8_t *data, uint8_t swState) {
  * @return None
  */
 static void sendIntroduction() {
-  uint8_t dataBytes[DISP_ARGB_LED_STRIP_DLC];
+  uint8_t dataBytes[NODE_DLC];
   dataBytes[0] = myNodeID[0]; // set node ID
   dataBytes[1] = myNodeID[1]; // set node ID
   dataBytes[2] = myNodeID[2]; // set node ID
@@ -413,7 +424,7 @@ static void sendIntroduction() {
   dataBytes[5] = (0xA0);      // feature mask 0
   dataBytes[6] = (0xB0);      // feature mask 1
 
-  send_message(DISP_ARGB_LED_STRIP_ID, (uint8_t *)dataBytes, DISP_ARGB_LED_STRIP_DLC); /**< send introduction message to the gateway node with the node's ID and feature mask */
+  send_message(NODE_ID, (uint8_t *)dataBytes, NODE_DLC); /**< send introduction message to the gateway node with the node's ID and feature mask */
 
 }
 
@@ -487,8 +498,6 @@ static void setEpochTime(uint32_t epochTime) {
 static void handle_rx_message(twai_message_t &message) {
   // twai_message_t altmessage;
   bool msgFlag = false;
-  leds[0] = CRGB::Orange;
-  FastLED.show();
 
 
   if (message.data_length_code > 0) { // message contains data, check if it is for us
@@ -497,8 +506,6 @@ static void handle_rx_message(twai_message_t &message) {
 
     if (memcmp(message.data, (const uint8_t *)myNodeID, 4) == 0) {
       msgFlag = true; // message is for us
-      leds[0] = CRGB::Green;
-      FastLED.show();
       // Serial.printf("Node ID matched for message id 0x%x\n", message.identifier);
     } else {
       msgFlag = false; // message is not for us
@@ -564,10 +571,6 @@ static void handle_rx_message(twai_message_t &message) {
       // sendIntroack();
       break;
   }
-
-  leds[0] = CRGB::Black;
-  FastLED.show();
-
 } // end of handle_rx_message
 
 // void checkLed() {
@@ -712,20 +715,14 @@ void TaskTWAI(void *pvParameters) {
     // Handle alerts
     if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
       Serial.println("Alert: TWAI controller has become error passive.");
-      leds[0] = CRGB::Red;
-      FastLED.show();
     }
 
     if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
       Serial.println("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus.");
       Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
-      leds[0] = CRGB::Red;
-      FastLED.show();
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
-      leds[0] = CRGB::Red;
-      FastLED.show();
       Serial.println("Alert: The Transmission failed.");
       // Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
       // Serial.printf("TX error: %d\t", twaistatus.tx_error_counter);
@@ -733,15 +730,11 @@ void TaskTWAI(void *pvParameters) {
     }
 
     if (alerts_triggered & TWAI_ALERT_TX_SUCCESS) {
-      leds[0] = CRGB::Green;
-      FastLED.show();
       // Serial.println("Alert: The Transmission was successful.");
       // Serial.printf("TX buffered: %d\t", twaistatus.msgs_to_tx);
     }
 
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
-      leds[0] = CRGB::Red;
-      FastLED.show();
       Serial.println("Alert: The RX queue full.");
       // Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
       // Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
@@ -762,8 +755,6 @@ void TaskTWAI(void *pvParameters) {
     // Send message
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= TRANSMIT_RATE_MS) {
-      leds[0] = CRGB::Blue;
-      FastLED.show();
       loopCount++;
       previousMillis = currentMillis;
       if (FLAG_SEND_INTRODUCTION) {
@@ -802,10 +793,11 @@ void setup() {
     NULL
   );
 
-
+#ifndef ESP32CYD
   FastLED.addLeds<SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
   leds[0] = CRGB::Black;
   FastLED.show();
+#endif
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
