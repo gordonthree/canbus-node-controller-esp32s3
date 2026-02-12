@@ -73,6 +73,61 @@ void initCYD() {
 }
 
 /**
+ * @brief Draws a simple splash screen while waiting for CAN sync
+ */
+void drawSplashScreen(const char* message) {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawCentreString("INITIALIZING", 160, 100, 4);
+    tft.drawCentreString(message, 160, 140, 2);
+}
+
+/**
+ * @brief Draws a WiFi signal strength indicator in the top left
+ * @param rssi The RSSI value from WiFi.RSSI()
+ */
+void drawWiFiStatus(int32_t rssi) {
+    int x = 10;
+    int y = 30;
+    uint16_t color;
+
+    /* Erase old indicator area in the header */
+    tft.fillRect(x, 10, 30, 25, TFT_BLUE);
+
+    /* Determine color based on strength */
+    if (rssi > -67) color = TFT_GREEN;       /* Good */
+    else if (rssi > -80) color = TFT_YELLOW; /* OK */
+    else color = TFT_RED;                    /* Poor */
+
+    /* Draw 4 bars of increasing height */
+    for (int i = 0; i < 4; i++) {
+        int barHeight = (i + 1) * 4;
+        if (rssi > -90 + (i * 10)) {
+            tft.fillRect(x + (i * 6), y - barHeight, 4, barHeight, color);
+        } else {
+            tft.drawRect(x + (i * 6), y - barHeight, 4, barHeight, TFT_WHITE);
+        }
+    }
+}
+
+/**
+ * @brief Draws the footer with IP address and NodeID
+ */
+void drawFooter() {
+    /* Erase footer area */
+    tft.fillRect(0, 210, 320, 30, TFT_DARKGREY);
+    tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
+
+    /* Format NodeID as Hex string (e.g., DEADBEEF) */
+    char nodeStr[20];
+    sprintf(nodeStr, "ID: %02X%02X%02X%02X", myNodeID[0], myNodeID[1], myNodeID[2], myNodeID[3]);
+
+    /* Draw IP on left, NodeID on right */
+    tft.drawString("IP: " + wifiIP, 10, 215, 2);
+    tft.drawRightString(nodeStr, 310, 215, 2);
+}
+
+/**
  * @brief Draws a status indicator for the CAN bus
  * @details Assumes spiSemaphore is ALREADY HELD. Routine to draw a green or 
  *          red circle in the top corner to indicate CAN health.
@@ -146,12 +201,18 @@ void TaskUpdateDisplay(void * pvParameters) {
   TouchData receivedTouch;
   char receivedTime[10];
   uint32_t lastPressTime = 0; 
-  const uint32_t debounceDelay = 750; /**< Milliseconds to wait between valid presses */
+  const uint32_t debounceDelay = 750;  /**< Milliseconds to wait between valid presses */
+  
+  /* flags to keep track of what has been drawn */
   static bool buttons_drawn = false;
   static bool ip_drawn = false;
-  static uint32_t lastCANCheck = 0;  /**< Tracks the last time we checked the bus */
-  static bool lastCANState = false;  /**< Tracks the previous state to detect changes */  
-  
+  static bool footer_drawn = false;
+
+  static uint32_t lastCANCheck = 0;    /**< Tracks the last time we checked the bus */
+  static bool lastCANState = false;    /**< Tracks the previous state to detect changes */  
+  static bool ui_initialized = false;  /**< Flag to track if the UI has been initialized */
+  static int32_t lastRSSI = 0;         /**< WiFi RSSI value for signal strength indicator */
+
   /* Variables for local time polling */
   static uint32_t lastTimeUpdate = 0;
   struct tm timeinfo;
@@ -163,68 +224,58 @@ void TaskUpdateDisplay(void * pvParameters) {
   for(;;) {
     uint32_t currentMillis = millis();
 
-    /* Initial Draw - Keep trying until the buttons get drawn. */
-    if (!buttons_drawn) {
-      if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-        /* Draw initial keypad buttons and labels */
-        drawKeypad();
-        /* Draw initial CAN status immediately so it isn't blank for the first 500ms */
-        drawCANStatus(can_driver_installed && !can_suspended);        
-        digitalWrite(LED_BLUE, HIGH); /* Turn off the blue LED */
-        xSemaphoreGive(spiSemaphore);
-        buttons_drawn = true;
-      }
+    /* STATE 1: Waiting for CAN Introduction Acknowledgement */
+    if (!ui_initialized) {
+        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (FLAG_SEND_INTRODUCTION) {
+                drawSplashScreen("Waiting for connection");
+            } else {
+                drawKeypad();
+                drawCANStatus(can_driver_installed && !can_suspended);
+                /* Draw footer immediately upon entry to main UI */
+                if (wifi_connected) drawFooter();
+                ui_initialized = true;
+            }
+            xSemaphoreGive(spiSemaphore);
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+        continue; 
     }
 
-    /* 2. Direct RTC Polling (Every 1 Second) */
+    /* STATE 2: Normal UI Operation */
+    /* 1000ms Refresh Loop (Time, WiFi, CAN, Footer) */
     if (currentMillis - lastTimeUpdate >= 1000) {
-      lastTimeUpdate = currentMillis;
-      
-      if (getLocalTime(&timeinfo)) {
-        strftime(timeString, sizeof(timeString), "%H:%M:%S", &timeinfo);
+        lastTimeUpdate = currentMillis;
         
-        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-          /* Draw Header */
+        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(20)) == pdTRUE) {
+          /* Draw the actual background bar */
           tft.fillRect(0, 0, 320, 43, TFT_BLUE);
-          tft.setTextColor(TFT_WHITE, TFT_BLUE);
-          tft.drawCentreString(timeString, 160, 10, 4);
           
-          /* Keep CAN Status visible on top of header */
-          drawCANStatus(can_driver_installed && !can_suspended);
           
-          /* Footer/IP refresh logic if needed */
-          if (wifi_connected && !ip_drawn) {
-            tft.fillRect(0, 210, 320, 30, TFT_DARKGREY);
-            tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-            tft.drawCentreString("IP: " + wifiIP, 160, 215, 2);
-            ip_drawn = true;
+          /* Draw the time */
+          if (getLocalTime(&timeinfo)) {
+              /* Set text color AND background color (the second parameter) */
+              tft.setTextColor(TFT_WHITE, TFT_BLUE);
+              strftime(timeString, sizeof(timeString), "%H:%M:%S", &timeinfo);
+              tft.drawCentreString(timeString, 160, 10, 4);
           }
+
+          /* Draw the WiFi signal strength indicator */
+          if (wifi_connected) drawWiFiStatus(WiFi.RSSI());
+
+          /* Draw the CAN bus status indicator */
+          drawCANStatus(can_driver_installed && !can_suspended);
+
+          /* Maintain Footer - Redraw if WiFi state changes or initially missed */
+          if (wifi_connected && !footer_drawn) {
+              drawFooter();
+              footer_drawn = true;
+          }
+          
           xSemaphoreGive(spiSemaphore);
         }
-      }
     }
-    
-
-    /* Only run this block if 500ms has passed since the last check */
-    if (currentMillis - lastCANCheck >= 500) {
-        lastCANCheck = currentMillis;
-
-        /* Combined check: Is the driver active AND not in a suspended error state? */
-        bool currentCANState = (can_driver_installed && !can_suspended);
-
-        /* * We only redraw if the state actually changed. 
-        * This prevents flickering and saves SPI bandwidth for other tasks.
-        */
-        if (currentCANState != lastCANState) {
-            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-                drawCANStatus(currentCANState);
-                xSemaphoreGive(spiSemaphore);
-                lastCANState = currentCANState;
-                
-                Serial.printf("CAN Status changed to: %s\n", currentCANState ? "ONLINE" : "OFFLINE");
-            }
-        }
-    }    
+   
     /* Check for Touch Data */
     if (xQueueReceive(touchQueue, &receivedTouch, 0)) {
       uint32_t currentTime = millis();
@@ -269,23 +320,22 @@ void TaskUpdateDisplay(void * pvParameters) {
         }
       }
 
-      // Check for Time Data
+      // // Check for Time Data
+      // if (xQueueReceive(timeQueue, &receivedTime, pdMS_TO_TICKS(50))) {
+      //   if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+      //   tft.fillRect(0, 0, 320, 43, TFT_BLUE); // Header bar
+      //   tft.setTextColor(TFT_WHITE, TFT_BLUE);
+      //   tft.drawCentreString(receivedTime, 160, 10, 4);
 
-      if (xQueueReceive(timeQueue, &receivedTime, pdMS_TO_TICKS(50))) {
-        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-        tft.fillRect(0, 0, 320, 43, TFT_BLUE); // Header bar
-        tft.setTextColor(TFT_WHITE, TFT_BLUE);
-        tft.drawCentreString(receivedTime, 160, 10, 4);
-
-        // Footer / IP Address (Only needs to draw once or when changed)
-        if (WiFi.status() == WL_CONNECTED) {
-          tft.fillRect(0, 210, 320, 30, TFT_DARKGREY);
-          tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-          tft.drawCentreString("IP: " + wifiIP, 160, 215, 2);
-        }
-        xSemaphoreGive(spiSemaphore);
-        }
-      }
+      //   // Footer / IP Address (Only needs to draw once or when changed)
+      //   if (WiFi.status() == WL_CONNECTED) {
+      //     tft.fillRect(0, 210, 320, 30, TFT_DARKGREY);
+      //     tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
+      //     tft.drawCentreString("IP: " + wifiIP, 160, 215, 2);
+      //   }
+      //   xSemaphoreGive(spiSemaphore);
+      //   }
+      // }
 
     /* 3. Explicitly yield to the IDLE task */
     vTaskDelay(pdMS_TO_TICKS(5));

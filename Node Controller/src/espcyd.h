@@ -42,6 +42,7 @@
 extern TFT_eSPI tft;
 extern volatile bool can_driver_installed;
 extern volatile bool can_suspended;
+extern uint8_t FLAG_SEND_INTRODUCTION;
 
 /* Set X and Y coordinates for center of display */
 const int centerX = SCREEN_WIDTH / 2;
