@@ -24,7 +24,7 @@ Right now the most time has been spent working with the ESP32-CYD board. The ESP
 
 ## Important setup notes
 
-Be sure to use ``git clone --recursive`` to clone this repository so you pull in the submodule containing all my canbus data files (https://github.com/gordonthree/can-canbus-data)
+Be sure to use ``git clone --recursive`` to clone this repository so you pull in the submodule containing all the canbus data files (https://github.com/gordonthree/can-canbus-data)
 
 You can also manually clone that repo into the ``lib/`` directory
 
