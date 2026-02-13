@@ -18,6 +18,7 @@
 
 #ifdef ESP32CYD
 #include "espcyd.h"
+extern void registerARGBNode(uint32_t id); // bring function over from espcyd.cpp
 #endif
 
 /* Timekeeping library */
@@ -32,9 +33,8 @@ volatile bool ota_started = false;
 const char* ota_password = SECRET_PSK; // change this
 
 
-/* my canbus stuff */
-#include "canbus_msg.h"
-#include "canbus_flags.h"
+/* my can bus stuff */
+#include "canbus_project.h"
 
 #define CAN_MY_IFACE_TYPE (0x701U) /* ARGB LED */
 #define CAN_SELF_MSG 1
@@ -271,6 +271,21 @@ void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
   // vTaskDelay(100);
 }
 
+/**
+ * @brief Updates LED strip based on received CAN color index
+ * @param index The 1-byte color index from the CAN message
+ */
+void handleColorCommand(uint8_t index) {
+#ifdef ARGB_LED
+    if (index < 32) {
+        CRGB targetColor = SystemPalette[index];
+        fill_solid(leds, ARGB_NUM_LEDS, targetColor);
+        FastLED.show();
+        Serial.printf("LED Color updated to index %d\n", index);
+    }
+#endif
+}
+
 static void setDisplayMode(uint8_t *data, uint8_t displayMode) {
   // uint8_t dataBytes[] = {0xA0, 0xA0, 0x55, 0x55, 0x7F, 0xE4}; // data bytes
   uint16_t rxdisplayID = (data[4] << 8) | data[5]; // switch ID
@@ -494,7 +509,7 @@ static void setEpochTime(uint32_t epochTime) {
   
 }
 
-static void handle_rx_message(twai_message_t &message) {
+static void rxProcessMessage(twai_message_t &message) {
   // twai_message_t altmessage;
   bool msgFlag = false;
 
@@ -507,7 +522,8 @@ static void handle_rx_message(twai_message_t &message) {
       msgFlag = true; // message is for us
       // Serial.printf("Node ID matched for message id 0x%x\n", message.identifier);
     } else {
-      msgFlag = false; // message is not for us
+      msgFlag = false; // message is not for us     
+      // sendIntroack();
       // Serial.printf("Overheard message 0x%03x for node %02x:%02x:%02x:%02x\n", message.identifier, rxUnitID[0], rxUnitID[1], rxUnitID[2], rxUnitID[3]);
     }
   } else {
@@ -549,6 +565,9 @@ static void handle_rx_message(twai_message_t &message) {
     case SET_DISPLAY_ON_ID:          // set display on
       setDisplayMode(message.data, 1); 
       break;    
+    case SET_ARGB_STRIP_COLOR_ID:          /* set ARGB color */
+      handleColorCommand(message.data[4]);
+      break;
     case REQ_NODE_INTRO_ID:
       Serial.println("Interface intro request, responding with 0x702");
       FLAG_SEND_INTRODUCTION = true; // set flag to send introduction message
@@ -577,45 +596,50 @@ static void handle_rx_message(twai_message_t &message) {
   }
 } // end of handle_rx_message
 
-// void checkLed() {
+/**
+ * @brief Validates and sorts messages that passed the broad hardware filter
+ * @param msg The TWAI message frame received from the bus
+ */
+void handleCanRX(twai_message_t& msg) {
+    /* 1. Extract the "Base" of the ID by masking out the lower 6 bits (0x3F) */
+    uint16_t idBase = msg.identifier & ~0x3F;
 
-//   static volatile int last_i = -1; // Keep track of the last state
+    /* 2. Software Filter: Only enter if it matches our three target ranges */
+    switch (idBase) {
+        case MSG_CTRL_IFACE: /* 0x200 */
+            /* Handle Switch/Input Messages */
+            rxProcessMessage(msg);
+            break;
 
-// // Only update LED and print if 'i' has changed
+        case MSG_REQ_INTRO: /* 0x400 */
+            /* Handle Status/Telemetry Messages */
+            rxProcessMessage(msg);
+            break;
 
-//   if (i != last_i) {
-//     if (i == 1) 
-//     { 
-//       leds[0] = CRGB::Red;
-//       FastLED.show();
-//       // Serial.println("RED LED is ON");
-//     } 
-//     else if (i == 2)
-//     {
-//       leds[0] = CRGB::Yellow;
-//       FastLED.show();
-//       // Serial.println("GREEN LED is ON");
-//     } 
-//     else if (i == 3)
-//     {
-//       leds[0] = CRGB::Green;
-//       FastLED.show();
-//       // Serial.println("BLUE LED is ON");
-//     } 
-//     else if (i >= 4) 
-//     {
-//       leds[0] = CRGB::Blue;
-//       FastLED.show();
-//       // Serial.println("LED's are OFF");
-//       i = 0;
-//     }
+        case MODULE_DISPLAY: /* 0x700*/
+            #ifdef ESP32CYD /* Handle Node Discovery and ARGB Commands */
+            if (msg.identifier == 0x701 || msg.identifier == 0x702 || msg.identifier == 0x711) {
+               uint32_t remoteNodeId; /* Holder for the 32-bit Node ID */
+               remoteNodeId = ((uint32_t)msg.data[4] << 24) | 
+                              ((uint32_t)msg.data[5] << 16) | 
+                              ((uint32_t)msg.data[6] << 8)  | 
+                              (uint32_t)msg.data[7]; /**< Extract the Node ID using bit-shifting */
+                registerARGBNode(remoteNodeId); /* Record the ARGB Node ID */
+              }
+              #endif   
+            // rxProcessMessage(msg);
+            break;
 
-//     last_i = i; // Update the last known state
-//   }
-// }
+        default:
+            /** * DISCARD "leaked" messages (e.g., 0x500 or 0x600) 
+             * that passed the hardware filter but isn't for us.
+             */
+            return;
+    }
+}
 
 void TaskTWAI(void *pvParameters) {
-  // give some time at boot the cpu setup other parameters
+  // give some time at boot for the cpu setup other parameters
   vTaskDelay(1000 / portTICK_PERIOD_MS);
 
 
@@ -660,8 +684,17 @@ void TaskTWAI(void *pvParameters) {
   /** Filter 2:
   * Same logic for the 0x400 range.
   */
-  uint32_t code2 = (0x400 << 5);
-  uint32_t mask2 = (0x03F << 5) | 0x1F;
+  // uint32_t code2 = (0x400 << 5);
+  // uint32_t mask2 = (0x03F << 5) | 0x1F;
+
+  /** Filter 2: Expanded to cover 0x400 AND 0x700 ranges
+   * Base Code: 0x400
+   * Mask: Ignore 0x300 (bits 8 and 9) + Ignore 0x03F (bits 0-5)
+   * This effectively accepts anything matching 0x400, 0x500, 0x600, or 0x700 
+   * that ends in the 0x00-0x3F range.
+   */
+  uint32_t code2 = (0x400 << 5); 
+  uint32_t mask2 = (0x33F << 5) | 0x1F;
 
   /** Combine into the 32-bit acceptance registers.
   * Filter 1 occupies the high 16 bits, Filter 2 the low 16 bits.
@@ -757,7 +790,7 @@ void TaskTWAI(void *pvParameters) {
       /* One or more messages received. Handle all. */
       twai_message_t message;
       while (twai_receive(&message, 0) == ESP_OK) {
-        handle_rx_message(message); 
+        handleCanRX(message); 
       }
     }
     /* Send message */
