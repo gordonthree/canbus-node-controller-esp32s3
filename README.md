@@ -1,15 +1,26 @@
-# PlatformIO Project - ESP32S3 CAN Bus Controller Node
+# PlatformIO Project - ESP32S3 CAN Bus Human Interface Node
+
+This project supports a few different configuration options and ESP32 board types. See the ``platformio.ini`` file for details
+
+Right now the most time has been spent working with the ESP32-CYD board. The ESP32-PICO is also supported, for controlling addressable RGB LEDs.
+
+## Hardware
+- ESP32-CYD - esp32-wroom
+- ESP32-PICO - m5stamp-pico
+- ESP32-S3 - m5stack-stamps3
+- ESP32?? - Waveshare 7in touch screen
 
 ## Goals
 - [x] WiFi Working
 - [x] Non blocking WiFi connect
-- [ ] 
-- [ ] 
-- [ ] WiFi OTA
+- [x] Keypad demo - four buttons that send CAN bus messages to remote switch nodes
+- [x] Color picker demo - choose from 32 colors that send CAN bus messages to remote ARGB nodes
+- [x] Node browser demo - Display other modules that have introduced themselves on the CAN bus
+- [x] WiFi OTA
 - [ ] WiFi Manager / Captive portal setup
-- [x] Timer based ISR
-- [ ] Create include file for CAN message ids
-- [ ] Setup CAN transcievers between two nodes
+- [x] FreeRTOS tasks
+- [x] Create include file for CAN message ids
+- [x] Setup CAN transcievers between two nodes
 
 
 
