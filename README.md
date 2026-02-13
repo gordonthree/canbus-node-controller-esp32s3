@@ -22,7 +22,7 @@ Right now the most time has been spent working with the ESP32-CYD board. The ESP
 - [x] Create include file for CAN message ids
 - [x] Setup CAN transcievers between two nodes
 
-# Important
+## Important setup notes
 
 Be sure to use ``git clone --recursive`` to clone this repository so you pull in the submodule containing all my canbus data files (https://github.com/gordonthree/can-canbus-data)
 
