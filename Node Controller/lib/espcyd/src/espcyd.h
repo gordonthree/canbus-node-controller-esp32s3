@@ -6,7 +6,7 @@
 #include <SPI.h>
 
 #include "time.h"
-#include "canbus_msg.h"
+#include "canbus_project.h"
 
 
 /*  Install the "TFT_eSPI" library by Bodmer to interface with the TFT Display - https://github.com/Bodmer/TFT_eSPI
@@ -42,7 +42,7 @@
 extern TFT_eSPI tft;
 extern volatile bool can_driver_installed;
 extern volatile bool can_suspended;
-extern uint8_t FLAG_SEND_INTRODUCTION;
+// extern uint8_t FLAG_SEND_INTRODUCTION;
 
 /* Set X and Y coordinates for center of display */
 const int centerX = SCREEN_WIDTH / 2;
@@ -51,6 +51,7 @@ const int centerY = SCREEN_HEIGHT / 2;
 
 /* Modular initialization function */
 void initCYD();
+void registerARGBNode(uint32_t id);
 
 struct TouchData {
   int x;
@@ -66,5 +67,17 @@ struct KeypadButton {
 };
 
 extern KeypadButton buttons[4];
+
+/** --- New UI States --- */
+enum DisplayMode { MODE_HOME, MODE_COLOR_PICKER };
+extern DisplayMode currentMode;
+
+/** --- ARGB Node Tracking --- */
+struct ARGBNode {
+    uint32_t id;
+    bool active;
+};
+extern ARGBNode discoveredNodes[5]; /**< Support up to 5 ARGB nodes */
+extern int selectedNodeIdx;
 
 #endif  /* End ESPCYD_H_ */

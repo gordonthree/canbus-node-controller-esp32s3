@@ -1,6 +1,8 @@
 #include <WiFi.h>
 #include "espcyd.h"
 
+/* espcyd.cpp */
+
 TFT_eSPI tft = TFT_eSPI();
 SPIClass touchscreenSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
@@ -23,15 +25,18 @@ volatile bool newData = false;
 // used to print IP on the display
 extern String wifiIP;
 
+/* Variables for the color picker routines - from main.cpp*/
+// extern DisplayMode currentMode;
+// extern ARGBNode discoveredNodes[5];
+// extern int selectedNodeIdx;
+DisplayMode currentMode = MODE_HOME; /**< Current display mode */
+int selectedNodeIdx = 0;     /**< Currently targeted node for color commands */
+
 /* can tx function in main.cpp */
 extern void send_message(uint16_t msgid, uint8_t *data, uint8_t dlc);
 
 /* node ID for the data payload */
 extern volatile uint8_t myNodeID[4];
-
-// Task Handles
-// TaskHandle_t TaskTouchHandle;
-// TaskHandle_t TaskDisplayHandle;
 
 extern bool wifi_connected;
 
@@ -70,6 +75,54 @@ void initCYD() {
     /* Start the tasks */
     xTaskCreate(TaskReadTouch, "TouchTask", 4096, NULL, 2, NULL);
     xTaskCreate(TaskUpdateDisplay, "DisplayTask", 4096, NULL, 1, NULL);
+}
+
+/**
+ * @brief Draws a 32-color selection grid on the CYD
+ */
+void drawColorPicker() {
+    int swatchW = 40;  /**< 320 / 8 columns */
+    int swatchH = 45;  /**< 180 / 4 rows (leaving room for header/footer) */
+    int startY = 45;   /**< Start below the header bar */
+
+    for (int i = 0; i < 32; i++) {
+        int col = i % 8;
+        int row = i / 8;
+        int x = col * swatchW;
+        int y = startY + (row * swatchH);
+
+        /* Convert CRGB to RGB565 for TFT_eSPI */
+        uint16_t color565 = tft.color565(SystemPalette[i].r, SystemPalette[i].g, SystemPalette[i].b);
+        
+        tft.fillRect(x, y, swatchW, swatchH, color565);
+        tft.drawRect(x, y, swatchW, swatchH, TFT_WHITE); // Border
+    }
+}
+
+/**
+ * @brief Draws a color palette icon in the header (x=50)
+ */
+void drawPickerIcon() {
+    /* Rainbow-ish 16x16 icon */
+    tft.fillRect(50, 12, 8, 8, TFT_RED);
+    tft.fillRect(58, 12, 8, 8, TFT_YELLOW);
+    tft.fillRect(50, 20, 8, 8, TFT_BLUE);
+    tft.fillRect(58, 20, 8, 8, TFT_GREEN);
+    tft.drawRect(49, 11, 18, 18, TFT_WHITE);
+}
+
+/* @brief Registers discovered ARGB nodes, if not already known 
+ * @param id The node ID to register */
+void registerARGBNode(uint32_t id) {
+    for(int i=0; i<5; i++) {
+        if(discoveredNodes[i].id == id) return; /** Already known */
+        if(discoveredNodes[i].id == 0) {       /** Found empty slot */
+            discoveredNodes[i].id = id;
+            discoveredNodes[i].active = true;
+            Serial.printf("Registered ARGB Node: 0x%X\n", id);
+            return;
+        }
+    }
 }
 
 /**
@@ -246,33 +299,31 @@ void TaskUpdateDisplay(void * pvParameters) {
     /* 1000ms Refresh Loop (Time, WiFi, CAN, Footer) */
     if (currentMillis - lastTimeUpdate >= 1000) {
         lastTimeUpdate = currentMillis;
-        
         if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(20)) == pdTRUE) {
-          /* Draw the actual background bar */
-          tft.fillRect(0, 0, 320, 43, TFT_BLUE);
-          
-          
-          /* Draw the time */
-          if (getLocalTime(&timeinfo)) {
-              /* Set text color AND background color (the second parameter) */
-              tft.setTextColor(TFT_WHITE, TFT_BLUE);
-              strftime(timeString, sizeof(timeString), "%H:%M:%S", &timeinfo);
-              tft.drawCentreString(timeString, 160, 10, 4);
-          }
+            tft.fillRect(0, 0, 320, 43, TFT_BLUE);
+            tft.setTextColor(TFT_WHITE, TFT_BLUE);
+            
+            /* Draw Header Components */
+            if (getLocalTime(&timeinfo)) {
+                strftime(timeString, sizeof(timeString), "%H:%M:%S", &timeinfo);
+                tft.drawCentreString(timeString, 160, 10, 4);
+            }
+            drawWiFiStatus(WiFi.RSSI());
+            drawCANStatus(can_driver_installed && !can_suspended);
+            drawPickerIcon(); /** Goal 1: Picker Icon */
 
-          /* Draw the WiFi signal strength indicator */
-          if (wifi_connected) drawWiFiStatus(WiFi.RSSI());
+            /* Target Node Label */
+            if (discoveredNodes[selectedNodeIdx].id != 0) {
+                char nodeLbl[15];
+                sprintf(nodeLbl, "To: 0x%X", discoveredNodes[selectedNodeIdx].id);
+                tft.drawString(nodeLbl, 75, 15, 2);
+            }
 
-          /* Draw the CAN bus status indicator */
-          drawCANStatus(can_driver_installed && !can_suspended);
-
-          /* Maintain Footer - Redraw if WiFi state changes or initially missed */
-          if (wifi_connected && !footer_drawn) {
-              drawFooter();
-              footer_drawn = true;
-          }
-          
-          xSemaphoreGive(spiSemaphore);
+            if (wifi_connected && !footer_drawn) {
+                drawFooter();
+                footer_drawn = true;
+            }
+            xSemaphoreGive(spiSemaphore);
         }
     }
    
@@ -281,64 +332,87 @@ void TaskUpdateDisplay(void * pvParameters) {
       uint32_t currentTime = millis();
       /* Only process if enough time has passed */
       if (currentTime - lastPressTime > debounceDelay) {
-        for (int i = 0; i < 4; i++) {
-              /* Collision Detection: Is the touch inside button[i]? */
-              if (receivedTouch.x >= buttons[i].x && receivedTouch.x <= (buttons[i].x + buttons[i].w) &&
-                  receivedTouch.y >= buttons[i].y && receivedTouch.y <= (buttons[i].y + buttons[i].h)) {
-                  
-                  /* Visual Feedback: Flash the button */
-                  if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-                      tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_RED);
-                      xSemaphoreGive(spiSemaphore);
-                  }
+            /* Check Header Taps (Change Mode or Change Node) */
+            if (receivedTouch.y < 45) {
+                if (receivedTouch.x > 45 && receivedTouch.x < 70) {
+                    currentMode = (currentMode == MODE_HOME) ? MODE_COLOR_PICKER : MODE_HOME;
+                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+                        (currentMode == MODE_HOME) ? drawKeypad() : drawColorPicker();
+                        xSemaphoreGive(spiSemaphore);
+                    }
+                } else if (receivedTouch.x > 75 && receivedTouch.x < 150) {
+                    /* Cycle through discovered nodes */
+                    selectedNodeIdx = (selectedNodeIdx + 1) % 5;
+                    if(discoveredNodes[selectedNodeIdx].id == 0) selectedNodeIdx = 0;
+                }
+                continue;
+            }
+            /* Main Content Taps */
+            if (currentMode == MODE_HOME) {
+                for (int i = 0; i < 4; i++) {
+                /* Collision Detection: Is the touch inside button[i]? */
+                if (receivedTouch.x >= buttons[i].x && receivedTouch.x <= (buttons[i].x + buttons[i].w) &&
+                    receivedTouch.y >= buttons[i].y && receivedTouch.y <= (buttons[i].y + buttons[i].h)) {
+                    
+                    /* Visual Feedback: Flash the button */
+                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_RED);
+                        xSemaphoreGive(spiSemaphore);
+                    }
 
-                  /* --- Momentary CAN Transmit --- */
-                  uint8_t canData[5];
-                  /* Bytes 0:3 - Node ID */
-                  memcpy(canData, (void*)myNodeID, 4);
+                    /* --- Momentary CAN Transmit --- */
+                    uint8_t canData[5];
+                    /* Bytes 0:3 - Node ID */
+                    memcpy(canData, (void*)myNodeID, 4);
 
-                  /* Byte 4 - Button ID (from the struct) */
-                  canData[4] = (uint8_t)buttons[i].canID;
+                    /* Byte 4 - Button ID (from the struct) */
+                    canData[4] = (uint8_t)buttons[i].canID;
 
-                  /* All buttons transmit on 0x115 */
-                  send_message(SW_MOM_PRESS_ID, canData, SW_MOM_PRESS_DLC);
-                  
-                  Serial.printf("Sent Button %d on CAN 0x115\n", (int)buttons[i].canID);
+                    /* All buttons transmit on 0x115 */
+                    send_message(SW_MOM_PRESS_ID, canData, SW_MOM_PRESS_DLC);
+                    
+                    Serial.printf("Sent Button %d on CAN 0x115\n", (int)buttons[i].canID);
 
-                  /* 1. Update the timestamp immediately to "lock" further presses */
-                  lastPressTime = currentTime;
+                    /* 1. Update the timestamp immediately to "lock" further presses */
+                    lastPressTime = currentTime;
 
-                  vTaskDelay(pdMS_TO_TICKS(250)); // Simple debouncing
-                  
-                  /* Reset border color */
-                  if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-                      tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_WHITE);
-                      xSemaphoreGive(spiSemaphore);
-                  }
-              }
-          }
+                    vTaskDelay(pdMS_TO_TICKS(250)); // Simple debouncing
+                    
+                    /* Reset border color */
+                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_WHITE);
+                        xSemaphoreGive(spiSemaphore);
+                    }
+                }
+            }        
         }
-      }
+        else if (currentMode == MODE_COLOR_PICKER) {
+                /* Color Grid Collision (8 cols, 4 rows) */
+                int col = receivedTouch.x / 40;
+                int row = (receivedTouch.y - 45) / 45;
+                int colorIdx = (row * 8) + col;
 
-      // // Check for Time Data
-      // if (xQueueReceive(timeQueue, &receivedTime, pdMS_TO_TICKS(50))) {
-      //   if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-      //   tft.fillRect(0, 0, 320, 43, TFT_BLUE); // Header bar
-      //   tft.setTextColor(TFT_WHITE, TFT_BLUE);
-      //   tft.drawCentreString(receivedTime, 160, 10, 4);
+                if (colorIdx >= 0 && colorIdx < 32) {
+                    uint8_t canData[6];
+                    canData[4] = (uint8_t)(0U); /* TODO: argb nodes might have more than one LED. write LED number into the buffer */
+                    canData[5] = (uint8_t)colorIdx; /* copy the color index into the buffer */
+                    
+                    /* Send to the selected discovered node or broadcast */
+                    uint32_t targetID = discoveredNodes[selectedNodeIdx].id ;
 
-      //   // Footer / IP Address (Only needs to draw once or when changed)
-      //   if (WiFi.status() == WL_CONNECTED) {
-      //     tft.fillRect(0, 210, 320, 30, TFT_DARKGREY);
-      //     tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-      //     tft.drawCentreString("IP: " + wifiIP, 160, 215, 2);
-      //   }
-      //   xSemaphoreGive(spiSemaphore);
-      //   }
-      // }
+                    /* Copy the target ID into the canData buffer */
+                    memcpy(canData, (void*)&targetID, 4);
+
+                    /* Send the message */                    
+                    send_message(SET_ARGB_STRIP_COLOR_ID, canData, SET_ARGB_STRIP_COLOR_DLC);
+                    Serial.printf("Sent Color %d to 0x%X\n", colorIdx, targetID);
+                } /* closing colorIdx */
+        } /* closing currentMode */
+      } /* closing debounce */
+    } /* closing receivedTouch */
 
     /* 3. Explicitly yield to the IDLE task */
     vTaskDelay(pdMS_TO_TICKS(5));
-  }
-}
+  } /* closing for(;;) */
+} /* closing TaskUpdateDisplay() */
 
