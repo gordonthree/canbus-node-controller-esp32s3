@@ -6,8 +6,10 @@
 #include <SPI.h>
 
 #include "time.h"
-#include "canbus_project.h"
 
+#ifndef CANBUS_PROJECT_H
+#include "canbus_project.h"
+#endif
 
 /*  Install the "TFT_eSPI" library by Bodmer to interface with the TFT Display - https://github.com/Bodmer/TFT_eSPI
     *** IMPORTANT: User_Setup.h available on the internet will probably NOT work with the examples available at Random Nerd Tutorials ***
