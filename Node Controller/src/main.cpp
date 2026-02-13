@@ -155,7 +155,7 @@ void TaskOTA(void *pvParameters) {
   /* Main loop: handle OTA requests */
   for (;;) {
     ArduinoOTA.handle();
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 
   vTaskDelete(NULL);
@@ -877,7 +877,7 @@ void setup() {
     "Task OTA",
     4096,   
     NULL,
-    3,
+    4,
     NULL
   );
 
