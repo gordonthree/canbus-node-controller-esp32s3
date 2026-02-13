@@ -31,6 +31,7 @@ extern String wifiIP;
 // extern int selectedNodeIdx;
 DisplayMode currentMode = MODE_HOME; /**< Current display mode */
 int selectedNodeIdx = 0;     /**< Currently targeted node for color commands */
+ARGBNode discoveredNodes[5]; /**< List of discovered ARGB nodes */
 
 /* can tx function in main.cpp */
 extern void send_message(uint16_t msgid, uint8_t *data, uint8_t dlc);
