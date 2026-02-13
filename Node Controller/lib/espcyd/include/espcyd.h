@@ -42,9 +42,7 @@
 
 /* Externalized variables for use in main logic if needed */
 extern TFT_eSPI tft;
-extern volatile bool can_driver_installed;
-extern volatile bool can_suspended;
-// extern uint8_t FLAG_SEND_INTRODUCTION;
+
 
 /* Set X and Y coordinates for center of display */
 const int centerX = SCREEN_WIDTH / 2;
@@ -70,16 +68,23 @@ struct KeypadButton {
 
 extern KeypadButton buttons[4];
 
-/** --- New UI States --- */
-enum DisplayMode { MODE_HOME, MODE_COLOR_PICKER };
+/** --- UI States --- */
+enum DisplayMode { MODE_HOME, MODE_COLOR_PICKER, MODE_NODE_SEL, MODE_MENU };
 extern DisplayMode currentMode;
 
-/** --- ARGB Node Tracking --- */
+/**
+ * @struct ARGBNode
+ * @brief Represents a discovered remote ARGB controller
+ */
 struct ARGBNode {
-    uint32_t id;
-    bool active;
+    uint32_t id;       /**< 32-bit Node ID */
+    bool active;       /**< Status flag */
+    uint32_t lastSeen; /**< Heartbeat timestamp */
+    int lastColorIdx;  /**< Last color index sent to this node */
 };
+
 extern ARGBNode discoveredNodes[5]; /**< Support up to 5 ARGB nodes */
 extern int selectedNodeIdx;
+
 
 #endif  /* End ESPCYD_H_ */

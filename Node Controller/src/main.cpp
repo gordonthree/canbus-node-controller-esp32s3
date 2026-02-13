@@ -32,6 +32,13 @@ volatile bool ota_enabled = false;
 volatile bool ota_started = false;
 const char* ota_password = SECRET_PSK; // change this
 
+/* memory allocation for the flags */
+uint8_t FLAG_SEND_INTRODUCTION = 0;
+uint8_t FLAG_BEGIN_NORMAL_OPER = 0;
+uint8_t FLAG_HALT_NORMAL_OPER  = 0;
+uint8_t FLAG_SEND_HEALTHCHECK  = 0;
+uint8_t FLAG_SEND_NODECHECK    = 0;
+uint8_t FLAG_PRINT_TIMESTAMP   = 0;
 
 /* my can bus stuff */
 #include "canbus_project.h"
@@ -618,15 +625,18 @@ void handleCanRX(twai_message_t& msg) {
 
         case MODULE_DISPLAY: /* 0x700*/
             #ifdef ESP32CYD /* Handle Node Discovery and ARGB Commands */
-            if (msg.identifier == 0x701 || msg.identifier == 0x702 || msg.identifier == 0x711) {
-               uint32_t remoteNodeId; /* Holder for the 32-bit Node ID */
-               remoteNodeId = ((uint32_t)msg.data[4] << 24) | 
-                              ((uint32_t)msg.data[5] << 16) | 
-                              ((uint32_t)msg.data[6] << 8)  | 
-                              (uint32_t)msg.data[7]; /**< Extract the Node ID using bit-shifting */
-                registerARGBNode(remoteNodeId); /* Record the ARGB Node ID */
+            if (msg.data_length_code >= 8) { /*  Ensure all 4 bytes of ID are present */
+              if (msg.identifier == 0x701 || msg.identifier == 0x702 || msg.identifier == 0x711) {
+                uint32_t remoteNodeId; /* Holder for the 32-bit Node ID */
+                remoteNodeId = ((uint32_t)msg.data[4] << 24) | 
+                                ((uint32_t)msg.data[5] << 16) | 
+                                ((uint32_t)msg.data[6] << 8)  | 
+                                (uint32_t)msg.data[7]; /* Extract the Node ID using bit-shifting */
+                if (remoteNodeId != 0) registerARGBNode(remoteNodeId); /* Record the ARGB Node ID as long as the ID is not 0 (error condition) */
               }
-              #endif   
+            }
+
+            #endif   
             // rxProcessMessage(msg);
             break;
 

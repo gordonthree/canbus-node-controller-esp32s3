@@ -22,6 +22,10 @@ int x, y, z;
 volatile int globalX, globalY, globalZ;
 volatile bool newData = false;
 
+/* CAN interface status from main.cpp */
+extern volatile bool can_suspended;
+extern volatile bool can_driver_installed;
+
 // used to print IP on the display
 extern String wifiIP;
 
@@ -48,6 +52,10 @@ KeypadButton buttons[4] = {
     {165, 130, 145, 70, "AUX",    3, TFT_ORANGE}
 };
 
+/**
+ * @brief Menu items for the hamburger menu
+ */
+const char* menuLabels[] = {"HOME", "COLOR PICKER", "NODE SELECT", "SYSTEM INFO"};
 
 void initCYD() {
     spiSemaphore = xSemaphoreCreateBinary(); /* semaphore to control SPI access */
@@ -57,6 +65,9 @@ void initCYD() {
     timeQueue = xQueueCreate(1, 10 * sizeof(char));
 
     Serial.println("CYD: Init");
+
+    /* Clear the discovered nodes array to prevent garbage data on UI */
+    memset(discoveredNodes, 0, sizeof(discoveredNodes));
 
     /* Power on the backlight */
     pinMode(CYD_BACKLIGHT, OUTPUT);
@@ -76,6 +87,72 @@ void initCYD() {
     /* Start the tasks */
     xTaskCreate(TaskReadTouch, "TouchTask", 4096, NULL, 2, NULL);
     xTaskCreate(TaskUpdateDisplay, "DisplayTask", 4096, NULL, 1, NULL);
+}
+
+/**
+ * @brief Draws the hamburger icon in the top-right
+ */
+void drawHamburgerIcon() {
+    int x = 280;
+    int y = 12;
+    tft.fillRect(x, y, 25, 4, TFT_WHITE);
+    tft.fillRect(x, y + 8, 25, 4, TFT_WHITE);
+    tft.fillRect(x, y + 16, 25, 4, TFT_WHITE);
+}
+
+/**
+ * @brief Draws the main navigation menu
+ */
+void drawHamburgerMenu() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawCentreString("MAIN MENU", 160, 20, 4);
+
+    for (int i = 0; i < 4; i++) {
+        int yPos = 60 + (i * 45);
+        tft.fillRoundRect(40, yPos, 240, 35, 5, TFT_DARKCYAN);
+        tft.drawRoundRect(40, yPos, 240, 35, 5, TFT_WHITE);
+        tft.drawCentreString(menuLabels[i], 160, yPos + 8, 2);
+    }
+}
+
+/**
+ * @brief Draws the list of discovered nodes with a color status square
+ */
+void drawNodeSelector() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawCentreString("SELECT TARGET NODE", 160, 10, 2);
+
+    for (int i = 0; i < 5; i++) {
+        int yPos = 45 + (i * 38);
+        uint16_t boxColor = (selectedNodeIdx == i) ? TFT_YELLOW : TFT_BLACK;
+        
+        /* Draw selection row container */
+        tft.drawRect(5, yPos - 2, 310, 34, boxColor);
+
+        if (discoveredNodes[i].id != 0) {
+            char buf[25];
+            sprintf(buf, "[%d] ID: 0x%08X", i, discoveredNodes[i].id);
+            tft.drawString(buf, 15, yPos + 8, 2);
+
+            /* Draw the small square showing the last sent color */
+            int cIdx = discoveredNodes[i].lastColorIdx;
+            uint16_t previewColor = tft.color565(SystemPalette[cIdx].r, 
+                                                 SystemPalette[cIdx].g, 
+                                                 SystemPalette[cIdx].b);
+            
+            tft.fillRect(280, yPos + 5, 20, 20, previewColor);
+            tft.drawRect(280, yPos + 5, 20, 20, TFT_WHITE);
+        } else {
+            tft.setTextColor(TFT_DARKGREY);
+            tft.drawString("--- Empty Slot ---", 15, yPos + 8, 2);
+            tft.setTextColor(TFT_WHITE);
+        }
+    }
+    
+    /* Footer hint */
+    tft.drawCentreString("Tap ID to select node", 160, 225, 1);
 }
 
 /**
@@ -112,17 +189,37 @@ void drawPickerIcon() {
     tft.drawRect(49, 11, 18, 18, TFT_WHITE);
 }
 
-/* @brief Registers discovered ARGB nodes, if not already known 
- * @param id The node ID to register */
+/**
+ * @brief Logic to register or update a discovered ARGB node
+ * @param id The 32-bit Node ID extracted from the CAN frame
+ */
 void registerARGBNode(uint32_t id) {
-    for(int i=0; i<5; i++) {
-        if(discoveredNodes[i].id == id) return; /** Already known */
-        if(discoveredNodes[i].id == 0) {       /** Found empty slot */
-            discoveredNodes[i].id = id;
+    int emptySlot = -1;
+
+    for (int i = 0; i < 5; i++) {
+        /* Case 1: Node already exists in our table */
+        if (discoveredNodes[i].id == id) {
+            discoveredNodes[i].lastSeen = millis();
             discoveredNodes[i].active = true;
-            Serial.printf("Registered ARGB Node: 0x%X\n", id);
             return;
         }
+
+        /* Keep track of the first available empty slot */
+        if (emptySlot == -1 && discoveredNodes[i].id == 0) {
+            emptySlot = i;
+        }
+    }
+
+    /* Case 2: New node discovered and we have room */
+    if (emptySlot != -1) {
+        discoveredNodes[emptySlot].id = id;
+        discoveredNodes[emptySlot].active = true;
+        discoveredNodes[emptySlot].lastSeen = millis();
+        
+        Serial.printf("UI: Registered New ARGB Node [0x%08X] at slot %d\n", id, emptySlot);
+    } else {
+        /* Case 3: Project limit reached (5 nodes) */
+        Serial.println("UI Warning: Discovered node ignored, table full.");
     }
 }
 
@@ -300,32 +397,50 @@ void TaskUpdateDisplay(void * pvParameters) {
     /* 1000ms Refresh Loop (Time, WiFi, CAN, Footer) */
     if (currentMillis - lastTimeUpdate >= 1000) {
         lastTimeUpdate = currentMillis;
-        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(20)) == pdTRUE) {
+        /* Check for stale nodes every second */
+        for (int i = 0; i < 5; i++) {
+            if (discoveredNodes[i].id != 0 && (currentMillis - discoveredNodes[i].lastSeen > 30000)) {
+                discoveredNodes[i].active = false;
+            }
+        }
+
+        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+            /* Clear Header area only, blue background */
             tft.fillRect(0, 0, 320, 43, TFT_BLUE);
-            tft.setTextColor(TFT_WHITE, TFT_BLUE);
             
-            /* Draw Header Components */
+            /* Draw time - white text blue background */
             if (getLocalTime(&timeinfo)) {
                 strftime(timeString, sizeof(timeString), "%H:%M:%S", &timeinfo);
+                tft.setTextColor(TFT_WHITE, TFT_BLUE);
                 tft.drawCentreString(timeString, 160, 10, 4);
             }
-            drawWiFiStatus(WiFi.RSSI());
-            drawCANStatus(can_driver_installed && !can_suspended);
-            drawPickerIcon(); /** Goal 1: Picker Icon */
 
-            /* Target Node Label */
+            /* Draw System Icons */
+            drawWiFiStatus(WiFi.RSSI()); /**< WiFi Status Icon */
+            drawCANStatus(can_driver_installed && !can_suspended); /**< CAN Status Icon */
+            drawPickerIcon(); /**< Color Picker Icon */
+
+            /* Draw Selection Context */
             if (discoveredNodes[selectedNodeIdx].id != 0) {
-                char nodeLbl[15];
-                sprintf(nodeLbl, "To: 0x%X", discoveredNodes[selectedNodeIdx].id);
+                char nodeLbl[20];
+                uint16_t txtCol = discoveredNodes[selectedNodeIdx].active ? TFT_WHITE : TFT_LIGHTGREY;
+                tft.setTextColor(txtCol, TFT_BLUE);
+                sprintf(nodeLbl, "To: 0x%08X", discoveredNodes[selectedNodeIdx].id);
                 tft.drawString(nodeLbl, 75, 15, 2);
             }
 
-            if (wifi_connected && !footer_drawn) {
-                drawFooter();
-                footer_drawn = true;
-            }
             xSemaphoreGive(spiSemaphore);
         }
+
+        /* Footer Update at startup after wifi comes up */
+        if (wifi_connected && !footer_drawn) {
+            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(20)) == pdTRUE) {
+                drawFooter();
+                footer_drawn = true;
+                xSemaphoreGive(spiSemaphore);
+            }
+        }
+
     }
    
     /* Check for Touch Data */
@@ -345,6 +460,13 @@ void TaskUpdateDisplay(void * pvParameters) {
                     /* Cycle through discovered nodes */
                     selectedNodeIdx = (selectedNodeIdx + 1) % 5;
                     if(discoveredNodes[selectedNodeIdx].id == 0) selectedNodeIdx = 0;
+                } else if (receivedTouch.y < 45 && receivedTouch.x > 260) {
+                    currentMode = MODE_MENU;
+                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+                        drawHamburgerMenu();
+                        xSemaphoreGive(spiSemaphore);
+                    }
+                    continue;
                 }
                 continue;
             }
@@ -402,12 +524,48 @@ void TaskUpdateDisplay(void * pvParameters) {
                     uint32_t targetID = discoveredNodes[selectedNodeIdx].id ;
 
                     /* Copy the target ID into the canData buffer */
-                    memcpy(canData, (void*)&targetID, 4);
+                    canData[0] = (targetID >> 24) & 0xFF;
+                    canData[1] = (targetID >> 16) & 0xFF;
+                    canData[2] = (targetID >> 8) & 0xFF;
+                    canData[3] = targetID & 0xFF;
 
                     /* Send the message */                    
                     send_message(SET_ARGB_STRIP_COLOR_ID, canData, SET_ARGB_STRIP_COLOR_DLC);
+                    
+                    /* save node state and color index to the table of nodes */
+                    discoveredNodes[selectedNodeIdx].lastColorIdx = colorIdx; 
+
+                    /* print debug message */
                     Serial.printf("Sent Color %d to 0x%X\n", colorIdx, targetID);
                 } /* closing colorIdx */
+        } 
+        else if (currentMode == MODE_NODE_SEL) {
+            int clickedIdx = (receivedTouch.y - 45) / 38;
+            if (clickedIdx >= 0 && clickedIdx < 5 && discoveredNodes[clickedIdx].id != 0) {
+                selectedNodeIdx = clickedIdx;
+                if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+                    drawNodeSelector(); // Refresh highlight
+                    xSemaphoreGive(spiSemaphore);
+                }
+            }
+            continue;
+        } else if (currentMode == MODE_MENU) {
+            if (receivedTouch.x > 40 && receivedTouch.x < 280) {
+                int item = (receivedTouch.y - 60) / 45;
+                if (item >= 0 && item <= 3) {
+                    currentMode = (DisplayMode)item; // Maps 0-3 to your Enum
+                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+                        switch(currentMode) {
+                            case MODE_HOME:         drawKeypad();       break;
+                            case MODE_COLOR_PICKER: drawColorPicker();  break;
+                            case MODE_NODE_SEL:     drawNodeSelector(); break;
+                            case MODE_MENU:         /* Already here */  break;
+                        }
+                        xSemaphoreGive(spiSemaphore);
+                    }
+                }
+            }
+            continue;
         } /* closing currentMode */
       } /* closing debounce */
     } /* closing receivedTouch */
