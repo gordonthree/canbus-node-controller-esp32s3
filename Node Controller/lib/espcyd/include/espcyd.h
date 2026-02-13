@@ -2,8 +2,10 @@
 #define ESPCYD_H_
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <WiFi.h>
 #include <SPI.h>
+
+#include "driver/twai.h" /**< Required for twai_status_info_t and twai_get_status_info() */
+#include <WiFi.h>        /**< Required for WiFi.RSSI() and WiFi.SSID() */
 
 #include "time.h"
 
@@ -43,6 +45,7 @@
 /* Externalized variables for use in main logic if needed */
 extern TFT_eSPI tft;
 
+extern String wifiIP; /**< Refers to the String defined in main.cpp */
 
 /* Set X and Y coordinates for center of display */
 const int centerX = SCREEN_WIDTH / 2;
@@ -69,7 +72,12 @@ struct KeypadButton {
 extern KeypadButton buttons[4];
 
 /** --- UI States --- */
-enum DisplayMode { MODE_HOME, MODE_COLOR_PICKER, MODE_NODE_SEL, MODE_MENU };
+enum DisplayMode { MODE_HOME = 0 , 
+                   MODE_COLOR_PICKER = 1, 
+                   MODE_NODE_SEL = 2, 
+                   MODE_SYSTEM_INFO = 3, 
+                   MODE_HAMBURGER_MENU = 4
+                };
 extern DisplayMode currentMode;
 
 /**
@@ -78,9 +86,9 @@ extern DisplayMode currentMode;
  */
 struct ARGBNode {
     uint32_t id;       /**< 32-bit Node ID */
-    bool active;       /**< Status flag */
     uint32_t lastSeen; /**< Heartbeat timestamp */
     int lastColorIdx;  /**< Last color index sent to this node */
+    bool active;       /**< Status flag */
 };
 
 extern ARGBNode discoveredNodes[5]; /**< Support up to 5 ARGB nodes */

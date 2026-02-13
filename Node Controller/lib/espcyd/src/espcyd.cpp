@@ -26,13 +26,8 @@ volatile bool newData = false;
 extern volatile bool can_suspended;
 extern volatile bool can_driver_installed;
 
-// used to print IP on the display
-extern String wifiIP;
 
 /* Variables for the color picker routines - from main.cpp*/
-// extern DisplayMode currentMode;
-// extern ARGBNode discoveredNodes[5];
-// extern int selectedNodeIdx;
 DisplayMode currentMode = MODE_HOME; /**< Current display mode */
 int selectedNodeIdx = 0;     /**< Currently targeted node for color commands */
 ARGBNode discoveredNodes[5]; /**< List of discovered ARGB nodes */
@@ -55,7 +50,7 @@ KeypadButton buttons[4] = {
 /**
  * @brief Menu items for the hamburger menu
  */
-const char* menuLabels[] = {"HOME", "COLOR PICKER", "NODE SELECT", "SYSTEM INFO"};
+const char* menuLabels[] = {"HOME", "COLOR PICKER", "NODE SELECT", "SYSTEM INFO", "HAMBURGER MENU"};
 
 void initCYD() {
     spiSemaphore = xSemaphoreCreateBinary(); /* semaphore to control SPI access */
@@ -86,7 +81,51 @@ void initCYD() {
   
     /* Start the tasks */
     xTaskCreate(TaskReadTouch, "TouchTask", 4096, NULL, 2, NULL);
-    xTaskCreate(TaskUpdateDisplay, "DisplayTask", 4096, NULL, 1, NULL);
+    xTaskCreate(TaskUpdateDisplay, "DisplayTask", 6144, NULL, 1, NULL);
+}
+
+/**
+ * @brief Draws diagnostic information for CAN and WiFi
+ */
+void drawSystemInfo() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawCentreString("SYSTEM DIAGNOSTICS", 160, 15, 2);
+    
+    twai_status_info_t status;
+    int yOff = 50;
+
+    /* CAN Bus Metrics */
+    if (twai_get_status_info(&status) == ESP_OK) {
+        tft.setTextColor(TFT_CYAN);
+        tft.drawString("CAN BUS STATUS:", 10, yOff, 2);
+        tft.setTextColor(TFT_WHITE);
+        
+        char buf[32];
+        sprintf(buf, "State: %s", (status.state == TWAI_STATE_RUNNING) ? "RUNNING" : "ERROR/BUS-OFF");
+        tft.drawString(buf, 20, yOff + 20, 2);
+        
+        sprintf(buf, "TX Errs: %d | RX Errs: %d", status.tx_error_counter, status.rx_error_counter);
+        tft.drawString(buf, 20, yOff + 40, 2);
+        
+        sprintf(buf, "Msgs Queued: %d", status.msgs_to_rx);
+        tft.drawString(buf, 20, yOff + 60, 2);
+    }
+
+    /* WiFi Metrics */
+    yOff = 140;
+    tft.setTextColor(TFT_GREEN);
+    tft.drawString("NETWORK STATUS:", 10, yOff, 2);
+    tft.setTextColor(TFT_WHITE);
+    
+    tft.drawString("SSID: " + String(WiFi.SSID()), 20, yOff + 20, 2);
+    tft.drawString("IP:   " + wifiIP, 20, yOff + 40, 2);
+    
+    char rssiBuf[32];
+    sprintf(rssiBuf, "Signal: %d dBm", WiFi.RSSI());
+    tft.drawString(rssiBuf, 20, yOff + 60, 2);
+
+    tft.drawCentreString("Tap Header to Return", 160, 220, 1);
 }
 
 /**
@@ -441,134 +480,155 @@ void TaskUpdateDisplay(void * pvParameters) {
             }
         }
 
-    }
-   
+        /* Update System Information every seconds when that display mode is active */
+        if (currentMode == MODE_SYSTEM_INFO) {
+            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+                drawSystemInfo();
+                xSemaphoreGive(spiSemaphore);
+            }
+        }
+    } /* End 1000ms refresh loop */
+    
     /* Check for Touch Data */
     if (xQueueReceive(touchQueue, &receivedTouch, 0)) {
-      uint32_t currentTime = millis();
-      /* Only process if enough time has passed */
-      if (currentTime - lastPressTime > debounceDelay) {
-            /* Check Header Taps (Change Mode or Change Node) */
+        uint32_t currentTime = millis();
+        
+        if (currentTime - lastPressTime > debounceDelay) {
+            lastPressTime = currentTime; // Move debounce lock to the start
+
+            /**
+             * @section Header Processing
+             * Handle global navigation (Mode switching, Node cycling, Hamburger)
+             */
             if (receivedTouch.y < 45) {
+                bool handled = false;
+
+                /* Case: Toggle Picker/Home */
                 if (receivedTouch.x > 45 && receivedTouch.x < 70) {
                     currentMode = (currentMode == MODE_HOME) ? MODE_COLOR_PICKER : MODE_HOME;
-                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
-                        (currentMode == MODE_HOME) ? drawKeypad() : drawColorPicker();
-                        xSemaphoreGive(spiSemaphore);
-                    }
-                } else if (receivedTouch.x > 75 && receivedTouch.x < 150) {
-                    /* Cycle through discovered nodes */
+                    handled = true;
+                } 
+                /* Case: Cycle Nodes */
+                else if (receivedTouch.x > 75 && receivedTouch.x < 150) {
                     selectedNodeIdx = (selectedNodeIdx + 1) % 5;
                     if(discoveredNodes[selectedNodeIdx].id == 0) selectedNodeIdx = 0;
-                } else if (receivedTouch.y < 45 && receivedTouch.x > 260) {
-                    currentMode = MODE_MENU;
-                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
-                        drawHamburgerMenu();
-                        xSemaphoreGive(spiSemaphore);
-                    }
-                    continue;
+                    handled = true;
+                } 
+                /* Case: Open Hamburger Menu */
+                else if (receivedTouch.x > 260) {
+                    currentMode = MODE_HAMBURGER_MENU;
+                    handled = true;
                 }
-                continue;
-            }
-            /* Main Content Taps */
-            if (currentMode == MODE_HOME) {
-                for (int i = 0; i < 4; i++) {
-                /* Collision Detection: Is the touch inside button[i]? */
-                if (receivedTouch.x >= buttons[i].x && receivedTouch.x <= (buttons[i].x + buttons[i].w) &&
-                    receivedTouch.y >= buttons[i].y && receivedTouch.y <= (buttons[i].y + buttons[i].h)) {
-                    
-                    /* Visual Feedback: Flash the button */
-                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-                        tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_RED);
-                        xSemaphoreGive(spiSemaphore);
-                    }
-
-                    /* --- Momentary CAN Transmit --- */
-                    uint8_t canData[5];
-                    /* Bytes 0:3 - Node ID */
-                    memcpy(canData, (void*)myNodeID, 4);
-
-                    /* Byte 4 - Button ID (from the struct) */
-                    canData[4] = (uint8_t)buttons[i].canID;
-
-                    /* All buttons transmit on 0x115 */
-                    send_message(SW_MOM_PRESS_ID, canData, SW_MOM_PRESS_DLC);
-                    
-                    Serial.printf("Sent Button %d on CAN 0x115\n", (int)buttons[i].canID);
-
-                    /* 1. Update the timestamp immediately to "lock" further presses */
-                    lastPressTime = currentTime;
-
-                    vTaskDelay(pdMS_TO_TICKS(250)); // Simple debouncing
-                    
-                    /* Reset border color */
-                    if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-                        tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_WHITE);
-                        xSemaphoreGive(spiSemaphore);
-                    }
-                }
-            }        
-        }
-        else if (currentMode == MODE_COLOR_PICKER) {
-                /* Color Grid Collision (8 cols, 4 rows) */
-                int col = receivedTouch.x / 40;
-                int row = (receivedTouch.y - 45) / 45;
-                int colorIdx = (row * 8) + col;
-
-                if (colorIdx >= 0 && colorIdx < 32) {
-                    uint8_t canData[6];
-                    canData[4] = (uint8_t)(0U); /* TODO: argb nodes might have more than one LED. write LED number into the buffer */
-                    canData[5] = (uint8_t)colorIdx; /* copy the color index into the buffer */
-                    
-                    /* Send to the selected discovered node or broadcast */
-                    uint32_t targetID = discoveredNodes[selectedNodeIdx].id ;
-
-                    /* Copy the target ID into the canData buffer */
-                    canData[0] = (targetID >> 24) & 0xFF;
-                    canData[1] = (targetID >> 16) & 0xFF;
-                    canData[2] = (targetID >> 8) & 0xFF;
-                    canData[3] = targetID & 0xFF;
-
-                    /* Send the message */                    
-                    send_message(SET_ARGB_STRIP_COLOR_ID, canData, SET_ARGB_STRIP_COLOR_DLC);
-                    
-                    /* save node state and color index to the table of nodes */
-                    discoveredNodes[selectedNodeIdx].lastColorIdx = colorIdx; 
-
-                    /* print debug message */
-                    Serial.printf("Sent Color %d to 0x%X\n", colorIdx, targetID);
-                } /* closing colorIdx */
-        } 
-        else if (currentMode == MODE_NODE_SEL) {
-            int clickedIdx = (receivedTouch.y - 45) / 38;
-            if (clickedIdx >= 0 && clickedIdx < 5 && discoveredNodes[clickedIdx].id != 0) {
-                selectedNodeIdx = clickedIdx;
-                if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
-                    drawNodeSelector(); // Refresh highlight
-                    xSemaphoreGive(spiSemaphore);
-                }
-            }
-            continue;
-        } else if (currentMode == MODE_MENU) {
-            if (receivedTouch.x > 40 && receivedTouch.x < 280) {
-                int item = (receivedTouch.y - 60) / 45;
-                if (item >= 0 && item <= 3) {
-                    currentMode = (DisplayMode)item; // Maps 0-3 to your Enum
+                /* Header area switch logic */
+                if (handled) {
                     if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
                         switch(currentMode) {
-                            case MODE_HOME:         drawKeypad();       break;
-                            case MODE_COLOR_PICKER: drawColorPicker();  break;
-                            case MODE_NODE_SEL:     drawNodeSelector(); break;
-                            case MODE_MENU:         /* Already here */  break;
+                            case MODE_HOME:            drawKeypad();            break;
+                            case MODE_COLOR_PICKER:    drawColorPicker();       break;
+                            case MODE_NODE_SEL:        drawNodeSelector();      break;
+                            case MODE_HAMBURGER_MENU:  drawHamburgerMenu();     break;
+                            case MODE_SYSTEM_INFO:     drawSystemInfo();        break;
                         }
                         xSemaphoreGive(spiSemaphore);
                     }
+                    continue; /* Exit touch processing for this event */
                 }
             }
-            continue;
-        } /* closing currentMode */
-      } /* closing debounce */
-    } /* closing receivedTouch */
+
+            /**
+             * @section Content Processing
+             * Use switch-case for mode-specific screen interactions
+             */
+            switch (currentMode) {
+                case MODE_HOME: {
+                    for (int i = 0; i < 4; i++) {
+                        if (receivedTouch.x >= buttons[i].x && receivedTouch.x <= (buttons[i].x + buttons[i].w) &&
+                            receivedTouch.y >= buttons[i].y && receivedTouch.y <= (buttons[i].y + buttons[i].h)) {
+                            
+                            /* Visual Feedback */
+                            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+                                tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_RED);
+                                xSemaphoreGive(spiSemaphore);
+                            }
+
+                            uint8_t canData[5];
+                            memcpy(canData, (void*)myNodeID, 4);
+                            canData[4] = (uint8_t)buttons[i].canID;
+                            send_message(SW_MOM_PRESS_ID, canData, SW_MOM_PRESS_DLC);
+
+                            vTaskDelay(pdMS_TO_TICKS(150)); 
+
+                            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+                                tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_WHITE);
+                                xSemaphoreGive(spiSemaphore);
+                            }
+                        }
+                    }
+                    break;
+                }
+
+                case MODE_COLOR_PICKER: {
+                    int col = receivedTouch.x / 40;
+                    int row = (receivedTouch.y - 45) / 45;
+                    int colorIdx = (row * 8) + col;
+
+                    if (colorIdx >= 0 && colorIdx < 32) {
+                        uint32_t targetID = discoveredNodes[selectedNodeIdx].id;
+                        uint8_t canData[6];
+                        
+                        /* Big-Endian ID Packing */
+                        canData[0] = (targetID >> 24) & 0xFF;
+                        canData[1] = (targetID >> 16) & 0xFF;
+                        canData[2] = (targetID >> 8) & 0xFF;
+                        canData[3] = targetID & 0xFF;
+                        canData[4] = 0; // LED Index
+                        canData[5] = (uint8_t)colorIdx;
+
+                        send_message(SET_ARGB_STRIP_COLOR_ID, canData, SET_ARGB_STRIP_COLOR_DLC);
+                        discoveredNodes[selectedNodeIdx].lastColorIdx = colorIdx;
+                    }
+                    break;
+                }
+
+                case MODE_NODE_SEL: {
+                    int clickedIdx = (receivedTouch.y - 45) / 38;
+                    if (clickedIdx >= 0 && clickedIdx < 5 && discoveredNodes[clickedIdx].id != 0) {
+                        selectedNodeIdx = clickedIdx;
+                        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+                            drawNodeSelector();
+                            xSemaphoreGive(spiSemaphore);
+                        }
+                    }
+                    break;
+                }
+
+                case MODE_HAMBURGER_MENU: {
+                    if (receivedTouch.x > 40 && receivedTouch.x < 280) {
+                        int item = (receivedTouch.y - 60) / 45;
+                        if (item >= 0 && item <= 3) {
+                            currentMode = (DisplayMode)item;
+                            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+                                switch(currentMode) {
+                                    case MODE_HOME:           drawKeypad();       break;
+                                    case MODE_COLOR_PICKER:   drawColorPicker();  break;
+                                    case MODE_NODE_SEL:       drawNodeSelector(); break;
+                                    case MODE_SYSTEM_INFO:    drawSystemInfo();   break;
+                                    case MODE_HAMBURGER_MENU: /* Already here */  break;
+                                }
+                                xSemaphoreGive(spiSemaphore);
+                            }
+                        }
+                    }
+                    break;
+                }
+
+            case MODE_SYSTEM_INFO: {
+                /* Optional: Add a button here to reset CAN counters or Reconnect WiFi */
+                break;
+            }
+            } /* end switch(currentMode) */
+        } /* end debounce */
+    } /* end queue receive */
 
     /* 3. Explicitly yield to the IDLE task */
     vTaskDelay(pdMS_TO_TICKS(5));
