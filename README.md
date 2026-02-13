@@ -1,4 +1,4 @@
-# PlatformIO Project - ESP32S3 CAN Bus Human Interface Node
+# PlatformIO Project - ESP32 CAN-bus Human Interface Node
 
 This project supports a few different configuration options and ESP32 board types. See the ``platformio.ini`` file for details
 
@@ -22,5 +22,16 @@ Right now the most time has been spent working with the ESP32-CYD board. The ESP
 - [x] Create include file for CAN message ids
 - [x] Setup CAN transcievers between two nodes
 
+# Important
 
+Be sure to use ``git clone --recursive`` to clone this repository so you pull in the submodule containing all my canbus data files (https://github.com/gordonthree/can-canbus-data)
+
+You can also manually clone that repo into the ``lib/`` directory
+
+Create a "secrets.ini" file in the same directory as platformio.ini
+
+```
+[secrets]
+OTA_PASSWORD = your_password
+```
 
