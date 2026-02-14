@@ -341,14 +341,14 @@ void drawInfoIcon(int x, int y) {
     tft.drawCentreString("i", x, y - 6, 2); // Simple 'i' for info
 }
 
-/**
- * @brief Draws a 32-color selection grid on the CYD
- */
 void drawColorPicker() {
-    int swatchW = 40;  /**< 320 / 8 columns */
-    int swatchH = 45;  /**< 180 / 4 rows (leaving room for header/footer) */
-    int startY = 45;   /**< Start below the header bar */
+    int swatchW = 40;
+    int swatchH = 45;
+    int startY = 45;
     drawHeader("COLOR PICKER");
+
+    /* Get the currently active color for the selected node */
+    int activeIdx = discoveredNodes[selectedNodeIdx].lastColorIdx;
 
     for (int i = 0; i < 32; i++) {
         int col = i % 8;
@@ -356,11 +356,16 @@ void drawColorPicker() {
         int x = col * swatchW;
         int y = startY + (row * swatchH);
 
-        /* Convert CRGB to RGB565 for TFT_eSPI */
         uint16_t color565 = tft.color565(SystemPalette[i].r, SystemPalette[i].g, SystemPalette[i].b);
-        
         tft.fillRect(x, y, swatchW, swatchH, color565);
-        tft.drawRect(x, y, swatchW, swatchH, TFT_WHITE); // Border
+        
+        /* Draw selection highlight if this is the active color */
+        if (i == activeIdx) {
+            tft.drawRect(x, y, swatchW, swatchH, TFT_RED);
+            tft.drawRect(x + 1, y + 1, swatchW - 2, swatchH - 2, TFT_RED); // Thick 2px border
+        } else {
+            tft.drawRect(x, y, swatchW, swatchH, TFT_WHITE);
+        }
     }
 }
 
@@ -498,6 +503,8 @@ void TaskReadTouch(void * pvParameters) {
   for(;;) {
     /* Only process touch if CAN is healthy and not suspended */
     if (can_driver_installed && !can_suspended) {
+      digitalWrite(LED_GREEN, !digitalRead(LED_GREEN)); /* Toggle the green LED */
+
       /* Try to take the mutex (wait up to 10ms if busy) */
       if (touchscreen.tirqTouched() && touchscreen.touched()) {
         if (spiSemaphore != NULL && xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -518,7 +525,6 @@ void TaskReadTouch(void * pvParameters) {
       /* Optional: Clear queue if bus drops to prevent latent actions */
       xQueueReset(touchQueue);
     }
-    digitalWrite(LED_GREEN, !digitalRead(LED_GREEN)); /* Toggle the green LED */
     vTaskDelay(pdMS_TO_TICKS(20)); /* High polling rate for touch */
   }
 }
@@ -671,24 +677,39 @@ void TaskUpdateDisplay(void * pvParameters) {
                 }
 
                 case MODE_COLOR_PICKER: {
-                    int col = receivedTouch.x / 40;
-                    int row = (receivedTouch.y - 45) / 45;
-                    int colorIdx = (row * 8) + col;
-
-                    if (colorIdx >= 0 && colorIdx < 32) {
-                        uint32_t targetID = discoveredNodes[selectedNodeIdx].id;
-                        uint8_t canData[6];
+                    /* Ensure touch is within the palette grid area */
+                    if (receivedTouch.y >= 45 && receivedTouch.y < 225) {
+                        int col = receivedTouch.x / 40;
+                        int row = (receivedTouch.y - 45) / 45;
                         
-                        /* Big-Endian ID Packing */
-                        canData[0] = (targetID >> 24) & 0xFF;
-                        canData[1] = (targetID >> 16) & 0xFF;
-                        canData[2] = (targetID >> 8) & 0xFF;
-                        canData[3] = targetID & 0xFF;
-                        canData[4] = 0; // LED Index
-                        canData[5] = (uint8_t)colorIdx;
+                        /* Clamp values to grid bounds */
+                        if (col > 7) col = 7;
+                        if (row > 3) row = 3;
 
-                        send_message(SET_ARGB_STRIP_COLOR_ID, canData, SET_ARGB_STRIP_COLOR_DLC);
-                        discoveredNodes[selectedNodeIdx].lastColorIdx = colorIdx;
+                        int colorIdx = (row * 8) + col;
+
+                        if (colorIdx >= 0 && colorIdx < 32) {
+                            /* Update local state */
+                            discoveredNodes[selectedNodeIdx].lastColorIdx = colorIdx;
+
+                            /* Construct and send CAN message */
+                            uint32_t targetID = discoveredNodes[selectedNodeIdx].id;
+                            uint8_t canData[6];
+                            canData[0] = (targetID >> 24) & 0xFF;
+                            canData[1] = (targetID >> 16) & 0xFF;
+                            canData[2] = (targetID >> 8) & 0xFF;
+                            canData[3] = targetID & 0xFF;
+                            canData[4] = 0; // LED Strip/Index
+                            canData[5] = (uint8_t)colorIdx;
+
+                            send_message(SET_ARGB_STRIP_COLOR_ID, canData, SET_ARGB_STRIP_COLOR_DLC);
+
+                            /* Trigger immediate redraw for the selection highlight */
+                            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+                                drawColorPicker(); 
+                                xSemaphoreGive(spiSemaphore);
+                            }
+                        }
                     }
                     break;
                 }
