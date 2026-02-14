@@ -270,6 +270,75 @@ void drawHamburgerMenu() {
     }
 }
 
+void drawHomeIcon(int x, int y) {
+    tft.fillTriangle(x, y-15, x-12, y, x+12, y, TFT_WHITE); // Roof
+    tft.fillRect(x-8, y, 16, 12, TFT_WHITE);               // Body
+    tft.fillRect(x-2, y+4, 4, 8, TFT_BLUE);                // Door
+}
+
+void drawPaletteIcon(int x, int y) {
+    tft.fillCircle(x, y, 12, TFT_WHITE);
+    tft.fillCircle(x-4, y-4, 3, TFT_RED);
+    tft.fillCircle(x+4, y-4, 3, TFT_GREEN);
+    tft.fillCircle(x, y+5, 3, TFT_BLUE);
+}
+
+void drawNetworkIcon(int x, int y) {
+    tft.fillCircle(x, y-8, 4, TFT_WHITE);    // Top Node
+    tft.fillCircle(x-8, y+8, 4, TFT_WHITE);  // Left Node
+    tft.fillCircle(x+8, y+8, 4, TFT_WHITE);  // Right Node
+    tft.drawLine(x, y-4, x-6, y+6, TFT_WHITE);
+    tft.drawLine(x, y-4, x+6, y+6, TFT_WHITE);
+}
+
+void drawInfoIcon(int x, int y) {
+    tft.fillCircle(x, y, 12, TFT_WHITE);
+    tft.setTextColor(TFT_NAVY);
+    tft.drawCentreString("i", x, y - 6, 2); // Simple 'i' for info
+}
+
+/**
+ * @brief Draws a 2x2 grid menu using icons and labels
+ * @details Reuses the layout coordinates of the keypad buttons
+ */
+void drawIconMenu() {
+    tft.fillScreen(TFT_BLACK);
+    drawHeader("MAIN MENU");
+
+    /* Define temporary menu button metadata */
+    struct MenuBtn {
+        const char* label;
+        uint16_t color;
+        void (*drawIcon)(int x, int y);
+    };
+
+    /* Link icons to buttons */
+    MenuBtn menuItems[4] = {
+        {"HOME",    TFT_BLUE,       drawHomeIcon},
+        {"COLORS",  TFT_DARKGREEN,  drawPaletteIcon},
+        {"NODES",   TFT_MAROON,     drawNetworkIcon},
+        {"SYSTEM",  TFT_NAVY,       drawInfoIcon}
+    };
+
+    for (int i = 0; i < 4; i++) {
+        /* Reuse keypad button geometry */
+        int bx = buttons[i].x;
+        int by = buttons[i].y;
+        int bw = buttons[i].w;
+        int bh = buttons[i].h;
+
+        tft.fillRoundRect(bx, by, bw, bh, 8, menuItems[i].color);
+        tft.drawRoundRect(bx, by, bw, bh, 8, TFT_WHITE);
+        
+        /* Draw the custom icon in the upper half of the button */
+        menuItems[i].drawIcon(bx + (bw / 2), by + (bh / 2) - 10);
+
+        /* Draw the label in the lower half */
+        tft.setTextColor(TFT_WHITE);
+        tft.drawCentreString(menuItems[i].label, bx + (bw / 2), by + bh - 22, 2);
+    }
+}
+
 /**
  * @brief Internal helper function to draw the keypad buttons on the screen
  * @details Assumes spiSemaphore is ALREADY HELD. Draws a black background, then
@@ -392,7 +461,7 @@ void refreshCurrentScreen() {
         case MODE_COLOR_PICKER:   drawColorPicker();   break;
         case MODE_NODE_SEL:       drawNodeSelector();  break;
         case MODE_SYSTEM_INFO:    drawSystemInfo();    break;
-        case MODE_HAMBURGER_MENU: drawHamburgerMenu(); break;
+        case MODE_HAMBURGER_MENU: drawIconMenu();      break;
     }
 }
 
@@ -611,25 +680,22 @@ void TaskUpdateDisplay(void * pvParameters) {
                     break;
                 }
 
-                case MODE_HAMBURGER_MENU: {
-                    if (receivedTouch.x > 40 && receivedTouch.x < 280) {
-                        int item = (receivedTouch.y - 60) / 45;
-                        if (item >= 0 && item <= 3) {
-                            currentMode = (DisplayMode)item;
-                            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
-                                switch(currentMode) {
-                                    case MODE_HOME:           drawKeypad();       break;
-                                    case MODE_COLOR_PICKER:   drawColorPicker();  break;
-                                    case MODE_NODE_SEL:       drawNodeSelector(); break;
-                                    case MODE_SYSTEM_INFO:    drawSystemInfo();   break;
-                                    case MODE_HAMBURGER_MENU: /* Already here */  break;
-                                }
-                                xSemaphoreGive(spiSemaphore);
-                            }
+            case MODE_HAMBURGER_MENU: {
+                for (int i = 0; i < 4; i++) {
+                    if (receivedTouch.x >= buttons[i].x && receivedTouch.x <= (buttons[i].x + buttons[i].w) &&
+                        receivedTouch.y >= buttons[i].y && receivedTouch.y <= (buttons[i].y + buttons[i].h)) {
+                        
+                        currentMode = (DisplayMode)i; // 0=Home, 1=Picker, 2=Nodes, 3=System
+                        
+                        if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+                            refreshCurrentScreen();
+                            xSemaphoreGive(spiSemaphore);
                         }
+                        break;
                     }
-                    break;
                 }
+                break;
+            }
 
             case MODE_SYSTEM_INFO: {
                 /* Optional: Add a button here to reset CAN counters or Reconnect WiFi */
