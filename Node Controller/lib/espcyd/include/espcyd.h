@@ -76,6 +76,16 @@ struct KeypadButton {
     uint16_t color;
 };
 
+/**
+ * @struct GridItem
+ * @brief Container for button metadata to be used in drawUnifiedGrid
+ */
+struct GridItem {
+    const char* label;
+    uint16_t color;
+    void (*drawIcon)(int x, int y);
+};
+
 extern KeypadButton buttons[4];
 
 /** --- UI States --- */

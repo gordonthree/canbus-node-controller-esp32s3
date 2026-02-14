@@ -79,6 +79,9 @@ void initCYD() {
     touchscreen.begin(touchscreenSPI);
     touchscreen.setRotation(1);
   
+    /* Add a node to the ARGB list, for testing purposes */
+    registerARGBNode(0x25A56D84);
+
     /* Start the tasks */
     xTaskCreate(TaskReadTouch, "TouchTask", 4096, NULL, 2, NULL);
     xTaskCreate(TaskUpdateDisplay, "DisplayTask", 6144, NULL, 1, NULL);
@@ -95,30 +98,61 @@ void drawHamburgerIcon() {
     tft.fillRect(x, y + 16, 25, 4, TFT_WHITE);
 }
 
-
-
 /**
- * @brief Draws a 32-color selection grid on the CYD
+ * @brief Draws a stylized LED lightbar
  */
-void drawColorPicker() {
-    int swatchW = 40;  /**< 320 / 8 columns */
-    int swatchH = 45;  /**< 180 / 4 rows (leaving room for header/footer) */
-    int startY = 45;   /**< Start below the header bar */
-    // drawHeader("COLOR PICKER");
-
-    for (int i = 0; i < 32; i++) {
-        int col = i % 8;
-        int row = i / 8;
-        int x = col * swatchW;
-        int y = startY + (row * swatchH);
-
-        /* Convert CRGB to RGB565 for TFT_eSPI */
-        uint16_t color565 = tft.color565(SystemPalette[i].r, SystemPalette[i].g, SystemPalette[i].b);
-        
-        tft.fillRect(x, y, swatchW, swatchH, color565);
-        tft.drawRect(x, y, swatchW, swatchH, TFT_WHITE); // Border
+void drawLightbarIcon(int x, int y) {
+    /* Main housing */
+    tft.drawRoundRect(x - 12, y - 6, 24, 12, 2, TFT_WHITE);
+    /* Individual LED "cells" */
+    for (int i = 0; i < 3; i++) {
+        tft.fillRect(x - 9 + (i * 7), y - 3, 5, 6, TFT_YELLOW);
     }
 }
+
+/**
+ * @brief Draws a seat warmer (Seat profile with heat waves)
+ */
+void drawSeatWarmerIcon(int x, int y) {
+    /* Seat Profile */
+    tft.drawLine(x - 8, y - 5, x - 8, y + 8, TFT_WHITE); // Backrest
+    tft.drawLine(x - 8, y + 8, x + 8, y + 8, TFT_WHITE); // Bottom
+    
+    /* Heat waves (squiggles) */
+    tft.drawFastVLine(x - 2, y - 8, 4, TFT_RED);
+    tft.drawFastVLine(x + 3, y - 8, 4, TFT_RED);
+    tft.drawFastVLine(x + 8, y - 8, 4, TFT_RED);
+}
+
+/**
+ * @brief Draws a water pump (Centrifugal housing style)
+ */
+void drawWaterPumpIcon(int x, int y) {
+    /* Main circular body */
+    tft.drawCircle(x, y, 8, TFT_WHITE);
+    /* Outlet pipe */
+    tft.fillRect(x + 4, y - 10, 6, 4, TFT_WHITE);
+    /* Internal impeller cross */
+    tft.drawFastHLine(x - 4, y, 8, TFT_CYAN);
+    tft.drawFastVLine(x, y - 4, 8, TFT_CYAN);
+}
+
+/**
+ * @brief Draws a windshield defroster (Curved pane with rising heat)
+ */
+void drawDefrosterIcon(int x, int y) {
+    /* Curved windshield base */
+    tft.drawEllipse(x, y + 8, 14, 4, TFT_WHITE);
+    tft.fillRect(x - 14, y + 8, 28, 5, TFT_BLACK); // Mask bottom half of ellipse
+    
+    /* Rising heat lines */
+    for (int i = 0; i < 3; i++) {
+        int xOff = -8 + (i * 8);
+        tft.drawLine(x + xOff, y + 4, x + xOff + 2, y - 4, TFT_ORANGE);
+    }
+}
+
+
 
 /**
  * @brief Draws a color palette icon in the header (x=27)
@@ -174,6 +208,37 @@ void drawHeader(const char* title) {
 
     /* Right: Hamburger Menu Icon */
     drawHamburgerIcon(); /**< Hamburger icon at x=280 */
+}
+
+/**
+ * @brief Draws a 2x2 grid of buttons based on the provided items
+ * @param title The header title for the screen
+ * @param items Array of 4 GridItem structs
+ */
+void drawUnifiedGrid(const char* title, GridItem* items) {
+    tft.fillScreen(TFT_BLACK);
+    drawHeader(title);
+    drawFooter();
+
+    for (int i = 0; i < 4; i++) {
+        int bx = buttons[i].x;
+        int by = buttons[i].y;
+        int bw = buttons[i].w;
+        int bh = buttons[i].h;
+
+        /* Draw Button Body */
+        tft.fillRoundRect(bx, by, bw, bh, 8, items[i].color);
+        tft.drawRoundRect(bx, by, bw, bh, 8, TFT_WHITE);
+        
+        /* Draw Icon (Upper half) */
+        if (items[i].drawIcon != NULL) {
+            items[i].drawIcon(bx + (bw / 2), by + (bh / 2) - 10);
+        }
+
+        /* Draw Label (Lower half) */
+        tft.setTextColor(TFT_WHITE);
+        tft.drawCentreString(items[i].label, bx + (bw / 2), by + bh - 22, 2);
+    }
 }
 
 /**
@@ -249,27 +314,6 @@ void drawWiFiStatus(int32_t rssi) {
 }
 
 
-
-
-
-/**
- * @brief Draws the main navigation menu with indices mapping to DisplayMode
- */
-void drawHamburgerMenu() {
-    tft.fillScreen(TFT_BLACK);
-    // tft.setTextColor(TFT_WHITE);
-    drawHeader("MAIN MENU");
-    // tft.drawCentreString("MAIN MENU", 160, 20, 4);
-
-    for (int i = 0; i < 4; i++) {
-        int yPos = 60 + (i * 45);
-        tft.fillRoundRect(40, yPos, 240, 35, 5, TFT_DARKCYAN);
-        tft.drawRoundRect(40, yPos, 240, 35, 5, TFT_WHITE);
-        tft.setTextColor(TFT_WHITE, TFT_DARKCYAN);
-        tft.drawCentreString(menuLabels[i], 160, yPos + 8, 2);
-    }
-}
-
 void drawHomeIcon(int x, int y) {
     tft.fillTriangle(x, y-15, x-12, y, x+12, y, TFT_WHITE); // Roof
     tft.fillRect(x-8, y, 16, 12, TFT_WHITE);               // Body
@@ -298,67 +342,48 @@ void drawInfoIcon(int x, int y) {
 }
 
 /**
- * @brief Draws a 2x2 grid menu using icons and labels
- * @details Reuses the layout coordinates of the keypad buttons
+ * @brief Draws a 32-color selection grid on the CYD
  */
-void drawIconMenu() {
-    tft.fillScreen(TFT_BLACK);
-    drawHeader("MAIN MENU");
+void drawColorPicker() {
+    int swatchW = 40;  /**< 320 / 8 columns */
+    int swatchH = 45;  /**< 180 / 4 rows (leaving room for header/footer) */
+    int startY = 45;   /**< Start below the header bar */
+    drawHeader("COLOR PICKER");
 
-    /* Define temporary menu button metadata */
-    struct MenuBtn {
-        const char* label;
-        uint16_t color;
-        void (*drawIcon)(int x, int y);
-    };
+    for (int i = 0; i < 32; i++) {
+        int col = i % 8;
+        int row = i / 8;
+        int x = col * swatchW;
+        int y = startY + (row * swatchH);
 
-    /* Link icons to buttons */
-    MenuBtn menuItems[4] = {
+        /* Convert CRGB to RGB565 for TFT_eSPI */
+        uint16_t color565 = tft.color565(SystemPalette[i].r, SystemPalette[i].g, SystemPalette[i].b);
+        
+        tft.fillRect(x, y, swatchW, swatchH, color565);
+        tft.drawRect(x, y, swatchW, swatchH, TFT_WHITE); // Border
+    }
+}
+
+void drawHamburgerMenu() {
+    GridItem menuItems[4] = {
         {"HOME",    TFT_BLUE,       drawHomeIcon},
         {"COLORS",  TFT_DARKGREEN,  drawPaletteIcon},
         {"NODES",   TFT_MAROON,     drawNetworkIcon},
         {"SYSTEM",  TFT_NAVY,       drawInfoIcon}
     };
-
-    for (int i = 0; i < 4; i++) {
-        /* Reuse keypad button geometry */
-        int bx = buttons[i].x;
-        int by = buttons[i].y;
-        int bw = buttons[i].w;
-        int bh = buttons[i].h;
-
-        tft.fillRoundRect(bx, by, bw, bh, 8, menuItems[i].color);
-        tft.drawRoundRect(bx, by, bw, bh, 8, TFT_WHITE);
-        
-        /* Draw the custom icon in the upper half of the button */
-        menuItems[i].drawIcon(bx + (bw / 2), by + (bh / 2) - 10);
-
-        /* Draw the label in the lower half */
-        tft.setTextColor(TFT_WHITE);
-        tft.drawCentreString(menuItems[i].label, bx + (bw / 2), by + bh - 22, 2);
-    }
+    drawUnifiedGrid("MAIN MENU", menuItems);
 }
 
-/**
- * @brief Internal helper function to draw the keypad buttons on the screen
- * @details Assumes spiSemaphore is ALREADY HELD. Draws a black background, then
- *          draws each button as a rounded rectangle with white outline and
- *          colored fill. Then draws the button label in white at the button's
- *          center.
- */
 void drawKeypad() {
-  /* Internal helper - assumes spiSemaphore is ALREADY HELD */
-  tft.fillScreen(TFT_BLACK);
-  drawHeader("KEYPAD"); /* Draw the simplified header */
-  drawFooter();        /* Draw the simplified footer */
-    for (int i = 0; i < 4; i++) { /* Draw the buttons*/
-        tft.fillRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, buttons[i].color);
-        tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_WHITE);
-        tft.setTextColor(TFT_WHITE);
-        tft.drawCentreString(buttons[i].label, buttons[i].x + (buttons[i].w / 2), buttons[i].y + (buttons[i].h / 2) - 8, 2);
-    }
+    GridItem keypadItems[4] = {
+        {"LT BAR", TFT_BLUE,       drawLightbarIcon},
+        {"SEAT WARMER",   TFT_MAROON,     drawSeatWarmerIcon},
+        {"WTR PUMP",     TFT_DARKGREEN,  drawWaterPumpIcon},
+        {"DEFROST",  TFT_ORANGE,     drawDefrosterIcon}
+    };
+    
+    drawUnifiedGrid("VEHICLE CONTROL", keypadItems);
 }
-
 
 /**
  * @brief Draws the node selection screen with a consistent header
@@ -461,7 +486,7 @@ void refreshCurrentScreen() {
         case MODE_COLOR_PICKER:   drawColorPicker();   break;
         case MODE_NODE_SEL:       drawNodeSelector();  break;
         case MODE_SYSTEM_INFO:    drawSystemInfo();    break;
-        case MODE_HAMBURGER_MENU: drawIconMenu();      break;
+        case MODE_HAMBURGER_MENU: drawHamburgerMenu(); break;
     }
 }
 
