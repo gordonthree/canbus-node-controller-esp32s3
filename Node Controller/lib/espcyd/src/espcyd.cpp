@@ -85,50 +85,6 @@ void initCYD() {
 }
 
 /**
- * @brief Draws diagnostic information for CAN and WiFi
- */
-void drawSystemInfo() {
-    tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_WHITE);
-    tft.drawCentreString("SYSTEM DIAGNOSTICS", 160, 15, 2);
-    
-    twai_status_info_t status;
-    int yOff = 50;
-
-    /* CAN Bus Metrics */
-    if (twai_get_status_info(&status) == ESP_OK) {
-        tft.setTextColor(TFT_CYAN);
-        tft.drawString("CAN BUS STATUS:", 10, yOff, 2);
-        tft.setTextColor(TFT_WHITE);
-        
-        char buf[32];
-        sprintf(buf, "State: %s", (status.state == TWAI_STATE_RUNNING) ? "RUNNING" : "ERROR/BUS-OFF");
-        tft.drawString(buf, 20, yOff + 20, 2);
-        
-        sprintf(buf, "TX Errs: %d | RX Errs: %d", status.tx_error_counter, status.rx_error_counter);
-        tft.drawString(buf, 20, yOff + 40, 2);
-        
-        sprintf(buf, "Msgs Queued: %d", status.msgs_to_rx);
-        tft.drawString(buf, 20, yOff + 60, 2);
-    }
-
-    /* WiFi Metrics */
-    yOff = 140;
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString("NETWORK STATUS:", 10, yOff, 2);
-    tft.setTextColor(TFT_WHITE);
-    
-    tft.drawString("SSID: " + String(WiFi.SSID()), 20, yOff + 20, 2);
-    tft.drawString("IP:   " + wifiIP, 20, yOff + 40, 2);
-    
-    char rssiBuf[32];
-    sprintf(rssiBuf, "Signal: %d dBm", WiFi.RSSI());
-    tft.drawString(rssiBuf, 20, yOff + 60, 2);
-
-    tft.drawCentreString("Tap Header to Return", 160, 220, 1);
-}
-
-/**
  * @brief Draws the hamburger icon in the top-right
  */
 void drawHamburgerIcon() {
@@ -139,60 +95,7 @@ void drawHamburgerIcon() {
     tft.fillRect(x, y + 16, 25, 4, TFT_WHITE);
 }
 
-/**
- * @brief Draws the main navigation menu
- */
-void drawHamburgerMenu() {
-    tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_WHITE);
-    tft.drawCentreString("MAIN MENU", 160, 20, 4);
 
-    for (int i = 0; i < 4; i++) {
-        int yPos = 60 + (i * 45);
-        tft.fillRoundRect(40, yPos, 240, 35, 5, TFT_DARKCYAN);
-        tft.drawRoundRect(40, yPos, 240, 35, 5, TFT_WHITE);
-        tft.drawCentreString(menuLabels[i], 160, yPos + 8, 2);
-    }
-}
-
-/**
- * @brief Draws the list of discovered nodes with a color status square
- */
-void drawNodeSelector() {
-    tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_WHITE);
-    tft.drawCentreString("SELECT TARGET NODE", 160, 10, 2);
-
-    for (int i = 0; i < 5; i++) {
-        int yPos = 45 + (i * 38);
-        uint16_t boxColor = (selectedNodeIdx == i) ? TFT_YELLOW : TFT_BLACK;
-        
-        /* Draw selection row container */
-        tft.drawRect(5, yPos - 2, 310, 34, boxColor);
-
-        if (discoveredNodes[i].id != 0) {
-            char buf[25];
-            sprintf(buf, "[%d] ID: 0x%08X", i, discoveredNodes[i].id);
-            tft.drawString(buf, 15, yPos + 8, 2);
-
-            /* Draw the small square showing the last sent color */
-            int cIdx = discoveredNodes[i].lastColorIdx;
-            uint16_t previewColor = tft.color565(SystemPalette[cIdx].r, 
-                                                 SystemPalette[cIdx].g, 
-                                                 SystemPalette[cIdx].b);
-            
-            tft.fillRect(280, yPos + 5, 20, 20, previewColor);
-            tft.drawRect(280, yPos + 5, 20, 20, TFT_WHITE);
-        } else {
-            tft.setTextColor(TFT_DARKGREY);
-            tft.drawString("--- Empty Slot ---", 15, yPos + 8, 2);
-            tft.setTextColor(TFT_WHITE);
-        }
-    }
-    
-    /* Footer hint */
-    tft.drawCentreString("Tap ID to select node", 160, 225, 1);
-}
 
 /**
  * @brief Draws a 32-color selection grid on the CYD
@@ -201,6 +104,7 @@ void drawColorPicker() {
     int swatchW = 40;  /**< 320 / 8 columns */
     int swatchH = 45;  /**< 180 / 4 rows (leaving room for header/footer) */
     int startY = 45;   /**< Start below the header bar */
+    // drawHeader("COLOR PICKER");
 
     for (int i = 0; i < 32; i++) {
         int col = i % 8;
@@ -217,15 +121,59 @@ void drawColorPicker() {
 }
 
 /**
- * @brief Draws a color palette icon in the header (x=50)
+ * @brief Draws a color palette icon in the header (x=27)
  */
 void drawPickerIcon() {
     /* Rainbow-ish 16x16 icon */
-    tft.fillRect(50, 12, 8, 8, TFT_RED);
-    tft.fillRect(58, 12, 8, 8, TFT_YELLOW);
-    tft.fillRect(50, 20, 8, 8, TFT_BLUE);
-    tft.fillRect(58, 20, 8, 8, TFT_GREEN);
-    tft.drawRect(49, 11, 18, 18, TFT_WHITE);
+    tft.fillRect(27, 12, 8, 8, TFT_RED);
+    tft.fillRect(35, 12, 8, 8, TFT_YELLOW);
+    tft.fillRect(27, 20, 8, 8, TFT_BLUE);
+    tft.fillRect(35, 20, 8, 8, TFT_GREEN);
+    tft.drawRect(26, 11, 18, 18, TFT_WHITE);
+}
+
+/**
+ * @brief Draws the footer with IP address and NodeID
+ */
+void drawFooter() {
+    /* Erase footer area */
+    tft.fillRect(0, 210, 320, 30, TFT_DARKGREY);
+    tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
+
+    /* Format NodeID as Hex string (e.g., DEADBEEF) */
+    char nodeStr[20];
+    sprintf(nodeStr, "ID: %02X%02X%02X%02X", myNodeID[0], myNodeID[1], myNodeID[2], myNodeID[3]);
+
+    /* Draw IP on left, NodeID on right */
+    tft.drawString("IP: " + wifiIP, 10, 215, 2);
+    tft.drawRightString(nodeStr, 310, 215, 2);
+}
+
+/**
+ * @brief Draws the simplified header with mode toggle and hamburger menu.
+ * @details This replaces the logic previously inside the 1000ms loop.
+ */
+void drawHeader(const char* title) {
+    /* Clear header area with blue background */
+    tft.fillRect(0, 0, 320, 43, TFT_BLUE);
+    
+    /* Left: Mode Toggle Icon (Home/Color) */
+    drawPickerIcon(); /**< Color Picker Icon at x=27 */
+
+    /* Center: Title and Selected Node context */
+    tft.setTextColor(TFT_WHITE, TFT_BLUE);
+    tft.drawCentreString(title, 160, 10, 2);
+    
+    if (discoveredNodes[selectedNodeIdx].id != 0) {
+        char nodeLbl[20];
+        uint16_t txtCol = discoveredNodes[selectedNodeIdx].active ? TFT_WHITE : TFT_LIGHTGREY;
+        tft.setTextColor(txtCol, TFT_BLUE);
+        sprintf(nodeLbl, "Node: 0x%08X", discoveredNodes[selectedNodeIdx].id);
+        tft.drawString(nodeLbl, 80, 28, 1);
+    }
+
+    /* Right: Hamburger Menu Icon */
+    drawHamburgerIcon(); /**< Hamburger icon at x=280 */
 }
 
 /**
@@ -300,39 +248,26 @@ void drawWiFiStatus(int32_t rssi) {
     }
 }
 
-/**
- * @brief Draws the footer with IP address and NodeID
- */
-void drawFooter() {
-    /* Erase footer area */
-    tft.fillRect(0, 210, 320, 30, TFT_DARKGREY);
-    tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
 
-    /* Format NodeID as Hex string (e.g., DEADBEEF) */
-    char nodeStr[20];
-    sprintf(nodeStr, "ID: %02X%02X%02X%02X", myNodeID[0], myNodeID[1], myNodeID[2], myNodeID[3]);
 
-    /* Draw IP on left, NodeID on right */
-    tft.drawString("IP: " + wifiIP, 10, 215, 2);
-    tft.drawRightString(nodeStr, 310, 215, 2);
-}
+
 
 /**
- * @brief Draws a status indicator for the CAN bus
- * @details Assumes spiSemaphore is ALREADY HELD. Routine to draw a green or 
- *          red circle in the top corner to indicate CAN health.
- * @param connected Boolean indicating if the driver is active and running
+ * @brief Draws the main navigation menu with indices mapping to DisplayMode
  */
-void drawCANStatus(bool active) {
-    /* Positioned in the header bar: x=300, y=21 */
-    uint16_t color = active ? TFT_GREEN : TFT_RED;
-    
-    /* Draw a background to clear old state */
-    tft.fillCircle(300, 21, 9, TFT_BLUE); 
-    
-    /* Draw the status indicator */
-    tft.fillCircle(300, 21, 7, color);
-    tft.drawCircle(300, 21, 7, TFT_WHITE);
+void drawHamburgerMenu() {
+    tft.fillScreen(TFT_BLACK);
+    // tft.setTextColor(TFT_WHITE);
+    drawHeader("MAIN MENU");
+    // tft.drawCentreString("MAIN MENU", 160, 20, 4);
+
+    for (int i = 0; i < 4; i++) {
+        int yPos = 60 + (i * 45);
+        tft.fillRoundRect(40, yPos, 240, 35, 5, TFT_DARKCYAN);
+        tft.drawRoundRect(40, yPos, 240, 35, 5, TFT_WHITE);
+        tft.setTextColor(TFT_WHITE, TFT_DARKCYAN);
+        tft.drawCentreString(menuLabels[i], 160, yPos + 8, 2);
+    }
 }
 
 /**
@@ -345,11 +280,119 @@ void drawCANStatus(bool active) {
 void drawKeypad() {
   /* Internal helper - assumes spiSemaphore is ALREADY HELD */
   tft.fillScreen(TFT_BLACK);
-    for (int i = 0; i < 4; i++) {
+  drawHeader("KEYPAD"); /* Draw the simplified header */
+  drawFooter();        /* Draw the simplified footer */
+    for (int i = 0; i < 4; i++) { /* Draw the buttons*/
         tft.fillRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, buttons[i].color);
         tft.drawRoundRect(buttons[i].x, buttons[i].y, buttons[i].w, buttons[i].h, 8, TFT_WHITE);
         tft.setTextColor(TFT_WHITE);
         tft.drawCentreString(buttons[i].label, buttons[i].x + (buttons[i].w / 2), buttons[i].y + (buttons[i].h / 2) - 8, 2);
+    }
+}
+
+
+/**
+ * @brief Draws the node selection screen with a consistent header
+ */
+void drawNodeSelector() {
+    /* 1. Draw the standard blue header */
+    tft.fillRect(0, 0, 320, 43, TFT_BLUE);
+    tft.setTextColor(TFT_WHITE, TFT_BLUE);
+    tft.drawCentreString("SELECT TARGET NODE", 160, 10, 2);
+    
+    /* Draw standard navigation icons in header */
+    drawPickerIcon();    /**< Left toggle icon */
+    drawHamburgerIcon(); /**< Right menu icon */
+
+    /* 2. Draw the Content Area */
+    tft.fillRect(0, 44, 320, 196, TFT_BLACK);
+
+    for (int i = 0; i < 5; i++) {
+        int yPos = 50 + (i * 38);
+        uint16_t boxColor = (selectedNodeIdx == i) ? TFT_YELLOW : TFT_BLACK;
+        
+        /* Draw selection row container */
+        tft.drawRect(5, yPos - 2, 310, 34, boxColor);
+
+        if (discoveredNodes[i].id != 0) {
+            char buf[25];
+            sprintf(buf, "[%d] ID: 0x%08X", i, discoveredNodes[i].id);
+            tft.setTextColor(discoveredNodes[i].active ? TFT_WHITE : TFT_LIGHTGREY);
+            tft.drawString(buf, 15, yPos + 8, 2);
+
+            /* Small square showing the last sent color */
+            int cIdx = discoveredNodes[i].lastColorIdx;
+            uint16_t previewColor = tft.color565(SystemPalette[cIdx].r, 
+                                                 SystemPalette[cIdx].g, 
+                                                 SystemPalette[cIdx].b);
+            
+            tft.fillRect(280, yPos + 5, 20, 20, previewColor);
+            tft.drawRect(280, yPos + 5, 20, 20, TFT_WHITE);
+        } else {
+            tft.setTextColor(TFT_DARKGREY);
+            tft.drawString("--- Empty Slot ---", 15, yPos + 8, 2);
+        }
+    }
+    
+    /* 3. Footer hint */
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawCentreString("Tap ID to select target", 160, 225, 1);
+}
+
+
+/**
+ * @brief Draws diagnostic info including the relocated clock and CAN metrics.
+ */
+void drawSystemInfo() {
+    tft.fillScreen(TFT_BLACK);
+    drawHeader("SYSTEM INFO");
+
+    /* --- Relocated Clock --- */
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        char timeStr[20];
+        strftime(timeStr, sizeof(timeStr), "%H:%M:%S", &timeinfo);
+        tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+        tft.drawCentreString(timeStr, 160, 60, 4); 
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        tft.drawCentreString("System Time (UTC/Local)", 160, 95, 1);
+    }
+
+    /* --- Detailed CAN & Network Metrics --- */
+    twai_status_info_t status;
+    int yPos = 120;
+    
+    if (twai_get_status_info(&status) == ESP_OK) {
+        tft.setTextColor(TFT_CYAN, TFT_BLACK);
+        tft.drawString("CAN BUS STATUS:", 20, yPos, 2);
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        
+        tft.setCursor(30, yPos + 20);
+        tft.printf("State: %s", (status.state == TWAI_STATE_RUNNING) ? "RUNNING" : "ERROR");
+        tft.setCursor(30, yPos + 40);
+        tft.printf("TX Errs: %d | RX Errs: %d", status.tx_error_counter, status.rx_error_counter);
+    }
+
+    /* Network Info */
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawString("NETWORK:", 20, yPos + 70, 2);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(30, yPos + 90);
+    tft.printf("IP: %s", wifiIP.c_str());
+    tft.setCursor(30, yPos + 110);
+    tft.printf("RSSI: %d dBm", WiFi.RSSI());
+}
+
+/**
+ * @brief Redraws the current screen based on the active mode. Keep this function below other draw functions
+ */
+void refreshCurrentScreen() {
+    switch(currentMode) {
+        case MODE_HOME:           drawKeypad();        break;
+        case MODE_COLOR_PICKER:   drawColorPicker();   break;
+        case MODE_NODE_SEL:       drawNodeSelector();  break;
+        case MODE_SYSTEM_INFO:    drawSystemInfo();    break;
+        case MODE_HAMBURGER_MENU: drawHamburgerMenu(); break;
     }
 }
 
@@ -409,7 +452,7 @@ void TaskUpdateDisplay(void * pvParameters) {
   char timeString[10];
 
   Serial.println("CYD: Display Task Started");
-  digitalWrite(LED_BLUE, LOW); /* Turn on the blue LED */
+//   digitalWrite(LED_BLUE, LOW); /* Turn on the blue LED */
 
   for(;;) {
     uint32_t currentMillis = millis();
@@ -418,10 +461,9 @@ void TaskUpdateDisplay(void * pvParameters) {
     if (!ui_initialized) {
         if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
             if (FLAG_SEND_INTRODUCTION) {
-                drawSplashScreen("Waiting for connection");
+                drawHeader("Waiting for connection");
             } else {
                 drawKeypad();
-                drawCANStatus(can_driver_installed && !can_suspended);
                 /* Draw footer immediately upon entry to main UI */
                 if (wifi_connected) drawFooter();
                 ui_initialized = true;
@@ -433,59 +475,32 @@ void TaskUpdateDisplay(void * pvParameters) {
     }
 
     /* STATE 2: Normal UI Operation */
-    /* 1000ms Refresh Loop (Time, WiFi, CAN, Footer) */
+    /* 1000ms Refresh Loop */
     if (currentMillis - lastTimeUpdate >= 1000) {
         lastTimeUpdate = currentMillis;
-        /* Check for stale nodes every second */
+
+        /* Check for stale nodes */
         for (int i = 0; i < 5; i++) {
             if (discoveredNodes[i].id != 0 && (currentMillis - discoveredNodes[i].lastSeen > 30000)) {
                 discoveredNodes[i].active = false;
             }
         }
 
+        /* ONLY perform a full redraw if we are on the System Info screen 
+           (to update the clock/RSSI) or if the footer needs its first draw */
         if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
-            /* Clear Header area only, blue background */
-            tft.fillRect(0, 0, 320, 43, TFT_BLUE);
             
-            /* Draw time - white text blue background */
-            if (getLocalTime(&timeinfo)) {
-                strftime(timeString, sizeof(timeString), "%H:%M:%S", &timeinfo);
-                tft.setTextColor(TFT_WHITE, TFT_BLUE);
-                tft.drawCentreString(timeString, 160, 10, 4);
+            if (currentMode == MODE_SYSTEM_INFO) {
+                drawSystemInfo();
             }
 
-            /* Draw System Icons */
-            drawWiFiStatus(WiFi.RSSI()); /**< WiFi Status Icon */
-            drawCANStatus(can_driver_installed && !can_suspended); /**< CAN Status Icon */
-            drawPickerIcon(); /**< Color Picker Icon */
-
-            /* Draw Selection Context */
-            if (discoveredNodes[selectedNodeIdx].id != 0) {
-                char nodeLbl[20];
-                uint16_t txtCol = discoveredNodes[selectedNodeIdx].active ? TFT_WHITE : TFT_LIGHTGREY;
-                tft.setTextColor(txtCol, TFT_BLUE);
-                sprintf(nodeLbl, "To: 0x%08X", discoveredNodes[selectedNodeIdx].id);
-                tft.drawString(nodeLbl, 75, 15, 2);
-            }
-
-            xSemaphoreGive(spiSemaphore);
-        }
-
-        /* Footer Update at startup after wifi comes up */
-        if (wifi_connected && !footer_drawn) {
-            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(20)) == pdTRUE) {
+            /* Footer Update (only once at startup) */
+            if (wifi_connected && !footer_drawn) {
                 drawFooter();
                 footer_drawn = true;
-                xSemaphoreGive(spiSemaphore);
             }
-        }
-
-        /* Update System Information every seconds when that display mode is active */
-        if (currentMode == MODE_SYSTEM_INFO) {
-            if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
-                drawSystemInfo();
-                xSemaphoreGive(spiSemaphore);
-            }
+            
+            xSemaphoreGive(spiSemaphore);
         }
     } /* End 1000ms refresh loop */
     
@@ -503,35 +518,29 @@ void TaskUpdateDisplay(void * pvParameters) {
             if (receivedTouch.y < 45) {
                 bool handled = false;
 
-                /* Case: Toggle Picker/Home */
-                if (receivedTouch.x > 45 && receivedTouch.x < 70) {
+                /* Left Target: Mode Toggle (x=0 to 80) */
+                if (receivedTouch.x < 80) {
                     currentMode = (currentMode == MODE_HOME) ? MODE_COLOR_PICKER : MODE_HOME;
                     handled = true;
                 } 
-                /* Case: Cycle Nodes */
-                else if (receivedTouch.x > 75 && receivedTouch.x < 150) {
-                    selectedNodeIdx = (selectedNodeIdx + 1) % 5;
-                    if(discoveredNodes[selectedNodeIdx].id == 0) selectedNodeIdx = 0;
-                    handled = true;
-                } 
-                /* Case: Open Hamburger Menu */
-                else if (receivedTouch.x > 260) {
+                /* Right Target: Hamburger Menu (x=240 to 320) */
+                else if (receivedTouch.x > 240) {
                     currentMode = MODE_HAMBURGER_MENU;
                     handled = true;
                 }
-                /* Header area switch logic */
+                /* Center Target: Cycle Nodes (x=80 to 240) */
+                else if (receivedTouch.x >= 80 && receivedTouch.x <= 240) {
+                    selectedNodeIdx = (selectedNodeIdx + 1) % 5;
+                    if(discoveredNodes[selectedNodeIdx].id == 0) selectedNodeIdx = 0;
+                    handled = true;
+                }
+
                 if (handled) {
                     if (xSemaphoreTake(spiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
-                        switch(currentMode) {
-                            case MODE_HOME:            drawKeypad();            break;
-                            case MODE_COLOR_PICKER:    drawColorPicker();       break;
-                            case MODE_NODE_SEL:        drawNodeSelector();      break;
-                            case MODE_HAMBURGER_MENU:  drawHamburgerMenu();     break;
-                            case MODE_SYSTEM_INFO:     drawSystemInfo();        break;
-                        }
+                        refreshCurrentScreen(); // Uses the helper function below
                         xSemaphoreGive(spiSemaphore);
                     }
-                    continue; /* Exit touch processing for this event */
+                    continue;
                 }
             }
 
