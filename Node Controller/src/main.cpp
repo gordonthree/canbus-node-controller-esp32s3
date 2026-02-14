@@ -1,3 +1,12 @@
+/**
+ * @file main.cpp
+ * @brief Gateway controller for CAN-based ARGB and Vehicle Control system.
+ * @details Handles Wi-Fi/OTA, TWAI (CAN) hardware lifecycle, and node discovery.
+ * Acts as the bridge between the CYD UI and the distributed hardware nodes.
+ * * @note Acceptance Filters:
+ * - Filter 1: 0x200-0x23F (Control/Interface)
+ * - Filter 2: 0x400-0x43F & 0x700-0x73F (Telemetry/ARGB)
+ */
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 
@@ -26,6 +35,11 @@ extern void registerARGBNode(uint32_t id); // bring function over from espcyd.cp
 
 /* my secrets */
 #include "secrets.h"
+
+/* my colors */
+#if defined(ARGB_LED) || defined(ESP32CYD)
+#include "colorpalette.h"
+#endif
 
 /* OTA task control */
 volatile bool ota_enabled = false;
