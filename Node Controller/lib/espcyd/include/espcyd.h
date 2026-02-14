@@ -23,6 +23,7 @@
 *   Note: this library doesn't require further configuration */
 #include <XPT2046_Touchscreen.h>
 
+
 /** Touchscreen pins, this is setup in build_flags in platformio.ini */
 #define XPT2046_IRQ 36   /* T_IRQ */
 #define XPT2046_MOSI 32  /* T_DIN */
@@ -30,8 +31,14 @@
 #define XPT2046_CLK 25   /* T_CLK */
 #define XPT2046_CS 33    /* T_CS */
 
+#ifndef SCREEN_WIDTH
 #define SCREEN_WIDTH 320
+#endif
+
+#ifndef SCREEN_HEIGHT
 #define SCREEN_HEIGHT 240
+#endif
+
 #define FONT_SIZE 2
 
 /** Cheap yellow display pin assignments */
