@@ -282,13 +282,13 @@ void send_message( uint16_t msgid, uint8_t *data, uint8_t dlc) {
  * @brief Updates LED strip based on received CAN color index
  * @param index The 1-byte color index from the CAN message
  */
-void handleColorCommand(uint8_t index) {
+void handleColorCommand(uint8_t ledIndex, uint8_t colorIndex) {
 #ifdef ARGB_LED
-    if (index < 32) {
-        CRGB targetColor = SystemPalette[index];
+    if (colorIndex < 32) {
+        CRGB targetColor = SystemPalette[colorIndex];
         fill_solid(leds, ARGB_NUM_LEDS, targetColor);
         FastLED.show();
-        Serial.printf("LED Color updated to index %d\n", index);
+        Serial.printf("Color for LED array %u updated to index %u\n", ledIndex, colorIndex);
     }
 #endif
 }
@@ -573,7 +573,7 @@ static void rxProcessMessage(twai_message_t &message) {
       setDisplayMode(message.data, 1); 
       break;    
     case SET_ARGB_STRIP_COLOR_ID:          /* set ARGB color */
-      handleColorCommand(message.data[4]);
+      handleColorCommand(0, message.data[5]); /* byte 4 is the display or led array index, byte 5 is the color index */
       break;
     case REQ_NODE_INTRO_ID:
       Serial.println("Interface intro request, responding with 0x702");
