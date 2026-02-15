@@ -123,7 +123,7 @@ CRGB leds[ARGB_NUM_LEDS];
 unsigned long ota_progress_millis = 0;
 
 volatile bool wifi_connected = false;
-volatile uint8_t myNodeID[4]; // node ID
+volatile uint8_t myNodeID[4]; /**< node ID comprised of four bytes from MAC address */ 
 
 void IRAM_ATTR Timer0_ISR()
 {
@@ -176,14 +176,20 @@ void TaskOTA(void *pvParameters) {
 }
 
 
+/**
+ * @brief Reads the ESP32 station MAC address and extracts a 4-byte Node ID.
+ */
 void readMacAddress() {
   uint8_t baseMac[6];
-  if (esp_wifi_get_mac(WIFI_IF_STA, baseMac) == ESP_OK) {
-    /* Copy 4 bytes starting from index 2 of baseMac into myNodeID */
-    memcpy((void*)myNodeID, &baseMac[2], 4);
-  } else {
-    Serial.println("Failed to set my node ID");
+  esp_efuse_mac_get_default(baseMac); /* get the factory-burned MAC address */
+  /* Copy 4 bytes starting from index 2 of baseMac into myNodeID */
+  memcpy((void*)myNodeID, &baseMac[2], 4);
+
+  Serial.print("Node ID extracted: ");
+  for(int i = 0; i < 4; i++) {
+    Serial.printf("%02X ", myNodeID[i]);
   }
+  Serial.println();
 }
 
 void wifiOnConnect(){
@@ -868,8 +874,7 @@ void setup() {
   setenv("TZ", "EST5EDT,M3.2.0,M11.1.0", 1);
   tzset();
 
-  Serial.print("[DEFAULT] ESP32 Board MAC Address: ");
-  readMacAddress();
+  readMacAddress(); /**< Read the ESP32 station MAC address and program myNodeID */
 
   #ifdef ESP32CYD
   initCYD(); /* Initialize CYD interface */
